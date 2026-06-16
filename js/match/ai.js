@@ -288,13 +288,63 @@ function containAndTackle(p, carrier, world, ownGoal, dt) {
   }
   p.driveTo(desired, dt, sprint);
 
-  // Attempt a tackle when very close, goal-side, and off cooldown.
-  if (dist < 1.5 && p.tackleCooldown <= 0) {
+  // ---- Tackle decision -------------------------------------------------------
+  // Jockey by default. Only commit to a challenge when it's actually worth it,
+  // otherwise the AI dives in constantly and concedes fouls/cards. The decision
+  // weighs the odds of winning the ball, how dangerous the situation is, whether
+  // there's cover behind, and the angle/speed of the challenge.
+  if (dist < 1.6 && p.tackleCooldown <= 0) {
     const winChance = clamp(0.35 + (a.defending - carrier.profile.dribbling) / 120 + (p.style === PlayStyle.NoNonsenseDefender ? 0.1 : 0), 0.05, 0.9);
-    const slide = dist < 1.2 && carrier.vel.len > 4;
-    world.attemptTackle(p, carrier, winChance, slide);
-    p.tackleCooldown = slide ? 1.4 : 0.7;
+
+    // Closer to our own goal => a challenge is more justified even at some risk.
+    const goalDist = V2.dist(carrier.pos, ownGoal);
+    const dangerZone = goalDist < PITCH.length * 0.3;
+
+    // Are we goal-side of the carrier (between them and our goal)? Lunging from
+    // here is far safer than diving in from behind a running attacker.
+    const goalSide = V2.dir(carrier.pos, p.pos).dot(toGoal) > 0.25;
+
+    // A teammate already covering behind us means there's no need to gamble.
+    const haveCover = coverBehind(p, carrier, world, ownGoal);
+
+    // Sliding into a fast runner from a poor angle is what gives away reckless
+    // fouls and cards.
+    const fast = carrier.vel.len > 4;
+
+    // Patience: composed players hold off, aggressive players dive in sooner.
+    const patience = clamp((a.composure || 60) - a.aggression, -30, 30) / 100; // -0.3..0.3
+
+    // Worth-it score: positive => commit, negative => keep jockeying.
+    let worth = winChance - 0.45 - patience;
+    if (dangerZone) worth += 0.25;
+    if (!haveCover) worth += 0.15;
+    if (!goalSide) worth -= 0.4;            // don't dive in from behind
+    if (fast && !goalSide) worth -= 0.2;    // chasing a fast runner is reckless
+
+    if (worth > 0) {
+      // Prefer a safe standing tackle. Only slide as a last resort: the carrier
+      // is breaking past us toward goal, we're a touch too far for a standing
+      // poke, the situation is dangerous, and the odds are reasonable.
+      const slide = dist >= 1.2 && fast && goalSide && winChance > 0.4 && (dangerZone || !haveCover);
+      world.attemptTackle(p, carrier, winChance, slide);
+      p.tackleCooldown = slide ? 1.6 : 0.9;
+    } else {
+      // Hold off and keep containing; re-evaluate again shortly.
+      p.tackleCooldown = 0.35;
+    }
   }
+}
+
+// True if a teammate (not the GK) is already covering goal-side of the carrier,
+// so the presser doesn't need to gamble on a risky challenge.
+function coverBehind(p, carrier, world, ownGoal) {
+  const toGoal = V2.dir(carrier.pos, ownGoal);
+  for (const q of world.players) {
+    if (q.side !== p.side || q === p || q.sentOff || q.isGK) continue;
+    const rel = V2.dir(carrier.pos, q.pos);
+    if (rel.dot(toGoal) > 0.4 && V2.dist(q.pos, carrier.pos) < 14) return true;
+  }
+  return false;
 }
 
 // Predict where to intercept a moving loose ball.

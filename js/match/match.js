@@ -842,18 +842,27 @@ export class Match {
     if (!this.nets || !this.nets.length) return;
     const b = this.ball;
     const gw = PITCH.goalWidth, gh = PITCH.goalHeight, hl = PITCH.halfLength;
-    if (Math.abs(b.pos.x) > gw / 2 + 0.2) return;
     for (const zSign of [1, -1]) {
       const line = zSign * hl;
-      const into = (b.pos.z - line) * zSign;           // how far past the line
-      if (into <= 0) continue;
-      if (b.pos.y > gh + 0.2) continue;
+      const into = (b.pos.z - line) * zSign;           // how far past the goal line
+      if (into <= 0) continue;                          // not past the line yet
+      if (b.pos.y > gh + 0.2) continue;                 // over the crossbar / roof net
       const backPlane = (this.nets.find((n) => n.zSign === zSign) || {}).depth || 2.0;
-      if (into > backPlane - 0.08) {
-        // Hit the back of the net: stop there and absorb most of the energy.
+      if (into > backPlane + 0.3) continue;             // beyond the netting entirely
+      // Back panel: stop the ball at the back of the net and absorb the pace.
+      if (Math.abs(b.pos.x) <= gw / 2 + 0.2 && into > backPlane - 0.08) {
         b.pos.z = line + zSign * (backPlane - 0.08);
         if (b.vel.z * zSign > 0) b.vel.z *= -0.18;
         b.vel.x *= 0.4; b.vel.y *= 0.4; b.spin = 0;
+      }
+      // Side panels: once the ball is inside the goal it can't escape sideways
+      // past the posts — the side netting catches it instead of letting it run
+      // out of play.
+      if (Math.abs(b.pos.x) > gw / 2 - BALL_R && Math.abs(b.pos.x) < gw / 2 + BALL_R + 0.3) {
+        const sx = Math.sign(b.pos.x) || 1;
+        b.pos.x = sx * (gw / 2 - BALL_R);
+        if (b.vel.x * sx > 0) b.vel.x *= -0.18;
+        b.vel.y *= 0.5; b.spin = 0;
       }
     }
   }
