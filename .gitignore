@@ -1,20 +1,13 @@
-# Unity generated
-[Ll]ibrary/
-[Tt]emp/
-[Oo]bj/
-[Bb]uild/
-[Bb]uilds/
-[Ll]ogs/
-[Uu]ser[Ss]ettings/
-[Mm]emoryCaptures/
-
-# Unity build output for WebGL (kept out of source; see DEPLOY.md)
-/Build/WebGL/
-
-# IDE / OS
+# Editor / OS
 .vs/
 .idea/
-*.csproj
-*.sln
+.vscode/
 *.user
 .DS_Store
+Thumbs.db
+
+# Node (only used for optional local tooling; the game itself needs none)
+node_modules/
+
+# Local build/output folders (the game ships as source — no build step)
+dist/

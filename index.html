@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <title>FIF — FC-style football (Three.js)</title>
+  <link rel="stylesheet" href="css/styles.css" />
+  <!--
+    Import map: Three.js is vendored locally (js/vendor/three) and resolved via
+    the bare specifier "three". No CDN, no bundler, no build step — this page
+    runs from any static file server (including GitHub Pages).
+  -->
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "./js/vendor/three/three.module.js"
+    }
+  }
+  </script>
+</head>
+<body>
+  <!-- WebGL canvas host (the match renders here) -->
+  <div id="scene"></div>
+  <!-- In-match DOM HUD overlay -->
+  <div id="hud"></div>
+  <!-- Menu / overlay screens -->
+  <div id="menu"></div>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
