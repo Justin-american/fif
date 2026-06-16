@@ -39,6 +39,14 @@ namespace FIF.Data
         /// <summary>Overall rating computed from the three authored line ratings.</summary>
         public int Overall => Mathf.RoundToInt((attack + defense + midfield) / 3f);
 
+        /// <summary>
+        /// The 11 normalized formation slots (in starting-XI order) for this
+        /// team's declared <see cref="formation"/>, or null if the formation is
+        /// not defined in <see cref="FormationLibrary"/>. Lets the match spawner
+        /// place the XI from data alone (Part B → Part C).
+        /// </summary>
+        public FormationSlot[] FormationSlots => FormationLibrary.Get(formation);
+
         /// <summary>Returns the captain from the starting XI, or null if none flagged.</summary>
         public PlayerProfile Captain
         {

@@ -36,6 +36,15 @@ namespace FIF.Core
                 BuildTyneside(),
                 BuildMidlandsClaret()
             };
+
+#if UNITY_EDITOR
+            // Fail loudly during development if a built-in squad does not match
+            // its declared formation (Part B). Stripped from player builds.
+            var report = SquadValidator.ValidateAll(_cache);
+            if (!string.IsNullOrEmpty(report))
+                Debug.LogWarning("TeamDatabase squad validation:\n" + report);
+#endif
+
             return _cache;
         }
 
@@ -214,8 +223,8 @@ namespace FIF.Core
                 P("Cucurella", 3, PlayerPosition.LB, PlayStyle.BoxToBox, 80, 55, 76, 80, 80, 74, 60, PreferredFoot.Left),
                 P("Caicedo", 25, PlayerPosition.CDM, PlayStyle.AnchorHolding, 80, 68, 80, 80, 85, 84, 72),
                 P("Enzo Fernandez", 8, PlayerPosition.CM, PlayStyle.Playmaker, 76, 80, 86, 82, 72, 76, 66),
-                P("Neto", 7, PlayerPosition.RW, PlayStyle.SpeedDribbler, 88, 80, 78, 86, 50, 68, 55),
                 P("Palmer", 10, PlayerPosition.CAM, PlayStyle.FinesseSpecialist, 78, 86, 84, 86, 55, 72, 60),
+                P("Neto", 7, PlayerPosition.RW, PlayStyle.SpeedDribbler, 88, 80, 78, 86, 50, 68, 55),
                 P("B. Gittens", 11, PlayerPosition.LW, PlayStyle.SpeedDribbler, 89, 78, 74, 86, 42, 64, 50),
                 P("Joao Pedro", 9, PlayerPosition.ST, PlayStyle.Poacher, 82, 82, 76, 82, 50, 78, 78)
             };
@@ -233,7 +242,7 @@ namespace FIF.Core
                 P("Botman", 4, PlayerPosition.CB, PlayStyle.NoNonsenseDefender, 78, 45, 74, 66, 85, 84, 85, PreferredFoot.Left),
                 P("Schar", 5, PlayerPosition.CB, PlayStyle.NoNonsenseDefender, 74, 55, 78, 68, 83, 82, 82),
                 P("Hall", 20, PlayerPosition.LB, PlayStyle.BoxToBox, 86, 55, 76, 80, 78, 74, 60, PreferredFoot.Left),
-                P("Bruno Guimaraes", 39, PlayerPosition.CM, PlayStyle.BoxToBox, 78, 78, 86, 86, 80, 80, 68),
+                P("Bruno Guimaraes", 39, PlayerPosition.CM, PlayStyle.BoxToBox, 78, 78, 86, 86, 80, 80, 68, PreferredFoot.Right, true),
                 P("Tonali", 8, PlayerPosition.CDM, PlayStyle.AnchorHolding, 74, 75, 84, 80, 82, 82, 72),
                 P("Joelinton", 7, PlayerPosition.CM, PlayStyle.BoxToBox, 78, 76, 78, 80, 78, 88, 78),
                 P("Almiron", 24, PlayerPosition.RW, PlayStyle.SpeedDribbler, 88, 76, 76, 82, 52, 66, 56),
@@ -254,7 +263,7 @@ namespace FIF.Core
                 P("Konsa", 4, PlayerPosition.CB, PlayStyle.NoNonsenseDefender, 82, 45, 72, 68, 84, 82, 80),
                 P("Pau Torres", 14, PlayerPosition.CB, PlayStyle.NoNonsenseDefender, 76, 48, 78, 70, 84, 80, 80, PreferredFoot.Left),
                 P("Digne", 27, PlayerPosition.LB, PlayStyle.Playmaker, 80, 58, 80, 78, 78, 72, 60, PreferredFoot.Left),
-                P("McGinn", 7, PlayerPosition.CM, PlayStyle.BoxToBox, 78, 78, 80, 80, 76, 80, 68),
+                P("McGinn", 7, PlayerPosition.CM, PlayStyle.BoxToBox, 78, 78, 80, 80, 76, 80, 68, PreferredFoot.Right, true),
                 P("Kamara", 44, PlayerPosition.CDM, PlayStyle.AnchorHolding, 76, 66, 80, 78, 82, 80, 70),
                 P("Tielemans", 8, PlayerPosition.CM, PlayStyle.Playmaker, 70, 78, 85, 80, 72, 74, 66),
                 P("Malen", 10, PlayerPosition.RW, PlayStyle.SpeedDribbler, 88, 78, 76, 84, 46, 66, 54),
