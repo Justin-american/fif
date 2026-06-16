@@ -28,7 +28,7 @@ namespace FIF.Match
             Position = home;
         }
 
-        public PlayerPosition Position2 => Profile != null ? Profile.position : PlayerPosition.CM;
+        public PlayerPosition PositionalRole => Profile != null ? Profile.position : PlayerPosition.CM;
         public PlayStyle Style => Profile != null ? Profile.playStyle : PlayStyle.None;
         public bool IsGoalkeeper => Profile != null && Profile.position == PlayerPosition.GK;
 

@@ -501,7 +501,6 @@ namespace FIF.Match
 
         private void StartPenaltyDrill()
         {
-            DrillAttempts = DrillAttempts; // attempts counted on the shot
             ResetPositions();
             var spot = Pitch.AttackingPenaltySpot(TeamSide.Home);
             Ball.Place(spot);
