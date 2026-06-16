@@ -86,7 +86,9 @@ This builds the WebGL player automatically on every push using
 > `UNITY_LICENSE` (and, if you use a Pro seat, `UNITY_EMAIL` / `UNITY_PASSWORD`)
 > as **repository secrets** under **Settings → Secrets and variables → Actions**.
 
-Create `.github/workflows/deploy.yml`:
+This repository already ships the workflow at
+[`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) — you do **not**
+need to create it. It is reproduced here for reference:
 
 ```yaml
 name: Build WebGL and Deploy to Pages
@@ -103,7 +105,7 @@ permissions:
 
 concurrency:
   group: pages
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   build:
@@ -117,7 +119,9 @@ jobs:
         with:
           path: Library
           key: Library-WebGL-${{ hashFiles('Assets/**','Packages/**','ProjectSettings/**') }}
-          restore-keys: Library-WebGL-
+          restore-keys: |
+            Library-WebGL-
+            Library-
 
       - name: Build WebGL
         uses: game-ci/unity-builder@v4
@@ -144,7 +148,8 @@ jobs:
         uses: actions/deploy-pages@v4
 ```
 
-Then set **Settings → Pages → Source = GitHub Actions**. Every push to `main`
+Then set **Settings → Pages → Source = GitHub Actions** (the workflow above is the
+one already committed at `.github/workflows/deploy.yml`). Every push to `main`
 rebuilds and republishes the game automatically.
 
 ---
