@@ -7,8 +7,8 @@ import { V2 } from '../util/mathx.js';
 export const PITCH = {
   length: 105,
   width: 68,
-  goalWidth: 7.32,
-  goalHeight: 2.44,
+  goalWidth: 9.0,
+  goalHeight: 2.8,
   penaltyAreaDepth: 16.5,
   penaltyAreaHalfWidth: 20.16,
   goalAreaDepth: 5.5,

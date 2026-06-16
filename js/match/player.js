@@ -31,6 +31,11 @@ export class Player {
     this.runTimer = 0;           // off-ball run state
     this.runTarget = null;
 
+    // Goalkeeper dive animation state (set when the keeper throws himself at a shot).
+    this.diveT = 0;              // remaining dive time (s)
+    this.diveDur = 0.7;
+    this.diveDir = 0;            // -1 left, +1 right (in world x)
+
     // Derived speeds (m/s) from 0-100 attributes.
     const a = profile;
     this.topSpeed = 5.0 + (a.pace / 100) * 4.2;        // ~5..9.2 m/s
@@ -113,11 +118,33 @@ export class Player {
     if (this.kickCooldown > 0) this.kickCooldown -= dt;
   }
 
+  // Trigger a goalkeeper dive toward dirSign (+1 = world +x, -1 = -x).
+  dive(dirSign) {
+    this.diveT = this.diveDur;
+    this.diveDir = dirSign >= 0 ? 1 : -1;
+  }
+
   syncMesh(dt) {
     if (!this.mesh) return;
     this.mesh.position.set(this.pos.x, 0, this.pos.z);
     const ang = Math.atan2(this.heading.x, this.heading.z);
     this.mesh.rotation.y = ang;
+
+    // Goalkeeper dive: the whole body throws sideways in an arc, lifting off the
+    // ground and reaching laterally toward the ball, then recovering.
+    if (this.diveT > 0) {
+      this.diveT = Math.max(0, this.diveT - dt);
+      const t = 1 - this.diveT / this.diveDur;   // 0 → 1 over the dive
+      const arc = Math.sin(Math.min(1, t) * Math.PI); // 0 → 1 → 0
+      this.mesh.rotation.z = this.diveDir * arc * 1.25;
+      this.mesh.position.x += this.diveDir * arc * 1.6;
+      this.mesh.position.y = arc * 0.35;
+      if (this._lLeg) this._lLeg.rotation.x = 0;
+      if (this._rLeg) this._rLeg.rotation.x = 0;
+      return;
+    }
+    this.mesh.rotation.z = 0;
+
     // Leg swing proportional to speed.
     const sp = this.vel.len;
     this._legPhase += dt * (4 + sp * 1.6);

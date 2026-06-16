@@ -40,45 +40,46 @@ export function buildShot(type, aim, charge, player, rng, airborneBall = false) 
 
   switch (type) {
     case ShotType.Power:
-      power = 22 + charge * 14;
+      power = 25 + charge * 16;
       lift = 3.5 + charge * 4;
-      spin = err(rng, a.shooting, 0.9);
+      spin = err(rng, a.shooting, 0.7);
       break;
     case ShotType.Finesse:
-      power = 16 + charge * 9;
+      power = 18 + charge * 10;
       lift = 3 + charge * 2.5;
-      spin = (1.8 + charge * 1.2) * sideSign + err(rng, a.shooting, 0.6);
+      spin = (2.0 + charge * 1.4) * sideSign + err(rng, a.shooting, 0.45);
       break;
     case ShotType.Trivela:
       // Outside-of-the-boot: curves the opposite way to finesse, flatter.
-      power = 18 + charge * 10;
+      power = 20 + charge * 11;
       lift = 2.6 + charge * 2;
-      spin = -(2.0 + charge * 1.3) * sideSign + err(rng, a.shooting, 0.7);
+      spin = -(2.2 + charge * 1.4) * sideSign + err(rng, a.shooting, 0.55);
       break;
     case ShotType.LowDriven:
-      power = 20 + charge * 13;
+      power = 23 + charge * 14;
       lift = 1.0 + charge * 0.8;          // stays low
-      spin = err(rng, a.shooting, 0.5);
-      break;
-    case ShotType.Chip:
-      power = 11 + charge * 7;
-      lift = 6.5 + charge * 3.5;          // high to lob the keeper
       spin = err(rng, a.shooting, 0.4);
       break;
+    case ShotType.Chip:
+      power = 12 + charge * 7;
+      lift = 6.5 + charge * 3.5;          // high to lob the keeper
+      spin = err(rng, a.shooting, 0.35);
+      break;
     case ShotType.Volley:
-      power = 19 + charge * 12;
+      power = 21 + charge * 13;
       lift = 3 + charge * 3;
-      spin = err(rng, a.shooting, 1.0);   // harder to keep down
+      spin = err(rng, a.shooting, 0.8);   // harder to keep down
       break;
     case ShotType.Header:
-      power = 12 + charge * 8 + a.heading * 0.06;
+      power = 13 + charge * 8 + a.heading * 0.06;
       lift = 2 + charge * 2;
-      spin = err(rng, a.heading, 0.7);
+      spin = err(rng, a.heading, 0.6);
       break;
   }
 
-  // Accuracy error: lower shooting/composure => more directional spread.
-  const spread = (1 - shootSkill) * 0.14 + (airborneBall ? 0.05 : 0);
+  // Accuracy error: lower shooting/composure => more directional spread. Tighter
+  // than before so shots are more dangerous when the player has the skill.
+  const spread = (1 - shootSkill) * 0.10 + (airborneBall ? 0.04 : 0);
   const ang = (rng() * 2 - 1) * spread;
   const cos = Math.cos(ang), sin = Math.sin(ang);
   const rd = new V2(dir.x * cos - dir.z * sin, dir.x * sin + dir.z * cos);

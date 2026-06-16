@@ -126,29 +126,43 @@ function offBallAttackAI(p, world, dt) {
   const carrier = world.ballCarrier;
   let target = p.home.clone();
 
-  // Push the line up relative to the ball; forwards make runs.
-  const ballZ = world.ball.pos.z;
-  const support = new V2(p.home.x, clamp(p.home.z + dir * 8, -PITCH.halfLength + 6, PITCH.halfLength - 6));
+  // Push the line up relative to the ball and shift laterally with it so players
+  // keep adjusting their support position instead of standing still.
+  const ball2d = world.ball.ground2D;
+  const carrierZ = carrier ? carrier.pos.z : ball2d.z;
+  const advance = carrier ? V2.dist(carrier.pos, attackingGoalCentre(p.side)) : 60;
+  const lateral = clamp(p.home.x + (ball2d.x - p.home.x) * 0.25, -PITCH.halfWidth + 4, PITCH.halfWidth - 4);
+  const support = new V2(lateral, clamp(p.home.z + dir * 8, -PITCH.halfLength + 6, PITCH.halfLength - 6));
 
   if (p.group === 'FWD' || p.style === PlayStyle.BoxToBox || p.style === PlayStyle.Poacher) {
     p.runTimer -= dt;
     const goal = attackingGoalCentre(p.side);
     if (p.style === PlayStyle.Poacher) {
-      // Stay on the last line, near-post / far-post run.
-      const post = (p.id % 2 === 0 ? 1 : -1) * PITCH.goalWidth * 0.5;
-      target = new V2(post, goal.z - dir * 8);
-    } else if (carrier && V2.dist(carrier.pos, goal) < 35) {
+      // Near/far-post run, but only commit into the box once the attack is in the
+      // final third. Otherwise hold a wider high line so we don't camp centrally
+      // in front of goal and drag a centre-back into a wall.
+      const post = (p.id % 2 === 0 ? 1 : -1) * PITCH.goalWidth * 0.45;
+      if (advance < 30) {
+        // Stay level with the deepest defender (onside) and attack a post.
+        const lastLine = lastDefenderZ(world, p.side);
+        const runZ = clamp(lastLine - dir * 0.5, goal.z - dir * 16, goal.z - dir * 1);
+        target = new V2(post, runZ);
+      } else {
+        target = new V2(clamp(post * 0.8 + ball2d.x * 0.2, -PITCH.halfWidth + 5, PITCH.halfWidth - 5),
+                        clamp(carrierZ + dir * 6, -PITCH.halfLength + 8, PITCH.halfLength - 8));
+      }
+    } else if (carrier && advance < 35) {
       // Overlapping / channel run beyond the carrier.
       const wing = clamp(p.home.x * 1.1, -PITCH.halfWidth + 4, PITCH.halfWidth - 4);
-      target = new V2(wing, clamp(carrier.pos.z + dir * 10, -PITCH.halfLength + 5, PITCH.halfLength - 5));
+      target = new V2(wing, clamp(carrierZ + dir * 10, -PITCH.halfLength + 5, PITCH.halfLength - 5));
     } else {
       target = support;
     }
   } else if (p.group === 'MID') {
     target = support;
   } else {
-    // Defenders hold a higher line but don't bomb forward.
-    target = new V2(p.home.x, clamp(p.home.z + dir * 4, -PITCH.halfLength + 6, PITCH.halfLength - 6));
+    // Defenders hold a higher line but don't bomb forward; shift across with the ball.
+    target = new V2(lateral, clamp(p.home.z + dir * 4, -PITCH.halfLength + 6, PITCH.halfLength - 6));
   }
 
   // Manual run trigger: the user can fling the nearest attacker forward.
@@ -158,8 +172,20 @@ function offBallAttackAI(p, world, dt) {
 
   const desired = V2.dir(p.pos, target).scale(p.effectiveTopSpeed(false));
   const arrive = V2.dist(p.pos, target);
-  if (arrive < 1.5) desired.scale(arrive / 1.5);
+  if (arrive < 1.0) desired.scale(arrive / 1.0);
   p.driveTo(desired, dt, p.group === 'FWD' && arrive > 8);
+}
+
+// Z of the opponents' deepest outfield defender (used to keep runs onside).
+function lastDefenderZ(world, side) {
+  const dir = attackZ(side);
+  let deepest = null;
+  for (const o of world.players) {
+    if (o.side === side || o.sentOff || o.isGK) continue;
+    const z = o.pos.z * dir;
+    if (deepest === null || z > deepest) deepest = z;
+  }
+  return deepest === null ? attackingGoalCentre(side).z : deepest * dir;
 }
 
 // ---- defending ---------------------------------------------------------------

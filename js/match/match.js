@@ -559,14 +559,19 @@ export class Match {
         // Goalkeeper last chance to save for a shot.
         if (this._pendingShot) {
           const gk = this.players.find((p) => p.side === concedeSide && p.isGK && !p.sentOff);
-          if (gk && tryShotStop(gk, this, b.pos.x, b.pos.y)) {
-            // Parry: reflect the ball back into play, loose.
-            b.pos.z = (concedeSide === 'home' ? -1 : 1) * (hl - 1.5);
-            b.vel.z = -b.vel.z * 0.4; b.vel.x *= 0.5; b.vel.y = 1.5; b.spin = 0;
-            b.lastTouch = gk; this._pendingShot = null;
-            sfx.save(); this.hud.toast('SAVE!');
-            this._addCommentary(`Great save by ${gk.profile.name}!`);
-            return;
+          if (gk) {
+            // Always throw himself at an on-target shot (dive animation), even if
+            // he doesn't reach it.
+            gk.dive(Math.sign(b.pos.x - gk.pos.x) || 1);
+            if (tryShotStop(gk, this, b.pos.x, b.pos.y)) {
+              // Parry: reflect the ball back into play, loose.
+              b.pos.z = (concedeSide === 'home' ? -1 : 1) * (hl - 1.5);
+              b.vel.z = -b.vel.z * 0.4; b.vel.x *= 0.5; b.vel.y = 1.5; b.spin = 0;
+              b.lastTouch = gk; this._pendingShot = null;
+              sfx.save(); this.hud.toast('SAVE!');
+              this._addCommentary(`Great save by ${gk.profile.name}!`);
+              return;
+            }
           }
         }
         this._scoreGoal(concedeSide === 'home' ? 'away' : 'home');
