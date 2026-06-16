@@ -36,6 +36,10 @@ export class Player {
     this.diveDur = 0.7;
     this.diveDir = 0;            // -1 left, +1 right (in world x)
 
+    // Slide-tackle animation state.
+    this.slideT = 0;
+    this.slideDur = 0.6;
+
     // Derived speeds (m/s) from 0-100 attributes.
     const a = profile;
     this.topSpeed = 5.0 + (a.pace / 100) * 4.2;        // ~5..9.2 m/s
@@ -124,6 +128,11 @@ export class Player {
     this.diveDir = dirSign >= 0 ? 1 : -1;
   }
 
+  // Trigger a sliding-tackle animation (lunge forward along the heading).
+  slide() {
+    this.slideT = this.slideDur;
+  }
+
   syncMesh(dt) {
     if (!this.mesh) return;
     this.mesh.position.set(this.pos.x, 0, this.pos.z);
@@ -144,6 +153,22 @@ export class Player {
       return;
     }
     this.mesh.rotation.z = 0;
+
+    // Slide tackle: the player drops low and lunges forward along his heading,
+    // one leg extended, then pops back up.
+    if (this.slideT > 0) {
+      this.slideT = Math.max(0, this.slideT - dt);
+      const t = 1 - this.slideT / this.slideDur;     // 0 → 1 over the slide
+      const arc = Math.sin(Math.min(1, t) * Math.PI); // 0 → 1 → 0
+      this.mesh.rotation.x = -arc * 0.95;             // lean back as he goes to ground
+      this.mesh.position.y = 0;
+      this.mesh.position.x += this.heading.x * arc * 0.7;
+      this.mesh.position.z += this.heading.z * arc * 0.7;
+      if (this._lLeg) this._lLeg.rotation.x = arc * 1.3; // lead leg stretched out
+      if (this._rLeg) this._rLeg.rotation.x = arc * 0.4;
+      return;
+    }
+    this.mesh.rotation.x = 0;
 
     // Leg swing proportional to speed.
     const sp = this.vel.len;

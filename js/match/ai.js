@@ -40,6 +40,8 @@ export function updateAI(p, world, dt) {
 // makes both teams fight for 50/50s instead of leaving it to a single defender.
 function chaseLooseBall(p, world, dt) {
   const ball2d = world.ball.ground2D;
+  // The player the user just passed to always chases onto the ball.
+  const isReceiver = world._userPassReceiver === p || world._intendedReceiver === p;
   // Rank own-side outfield players by distance to the ball.
   const mine = world.players
     .filter((q) => q.side === p.side && !q.isGK && !q.sentOff)
@@ -49,10 +51,10 @@ function chaseLooseBall(p, world, dt) {
   const rank = mine.findIndex((e) => e.q === p);
   // Only the two closest of each side commit; and only when it's actually
   // reachable (otherwise hold shape). The very closest will commit from further.
-  const reach = rank === 0 ? 32 : 14;
-  if (rank > 1 || myDist > reach) return false;
+  const reach = (rank === 0 || isReceiver) ? 40 : 14;
+  if (!isReceiver && (rank > 1 || myDist > reach)) return false;
   // High balls can't be controlled on the floor — don't sprint under them.
-  if (world.ball.pos.y > 2.4) return false;
+  if (world.ball.pos.y > 2.4 && !isReceiver) return false;
   const aim = ballPredict(world, p);
   const desired = V2.dir(p.pos, aim).scale(p.effectiveTopSpeed(true));
   p.driveTo(desired, dt, true);

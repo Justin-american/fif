@@ -8,7 +8,7 @@ import { groupOf } from '../data/formations.js';
 import { PlayStyle } from '../data/formations.js';
 import { GameMode, opponentSkill } from '../core/gameState.js';
 import { sfx } from '../core/audio.js';
-import { PITCH, fromFormation, inBounds, attackingGoalCentre, defendingGoalZ, attackingPenaltySpot, attackZ } from './pitch.js';
+import { PITCH, fromFormation, inBounds, attackingGoalCentre, defendingGoalZ, attackingPenaltySpot, attackZ, inPenaltyArea } from './pitch.js';
 import { Ball, BALL_R } from './ball.js';
 import { Player } from './player.js';
 import { Input } from './input.js';
@@ -198,6 +198,7 @@ export class Match {
   }
 
   attemptTackle(defender, carrier, winChance, slide) {
+    if (slide) defender.slide();
     if (this.rng() < winChance) {
       // Clean tackle: knock the ball loose toward the defender's facing.
       const dir = defender.heading.clone().normalize();
@@ -206,10 +207,13 @@ export class Match {
       this.possessionSide = defender.side;
       sfx.trap();
     } else {
-      // Missed: foul. Severity higher for sliding from behind / reckless.
-      let severity = slide ? 0.45 : 0.25;
-      severity += this.rng() * 0.4;
-      if (defender.profile.aggression > 80) severity += 0.05;
+      // Missed: foul, but a clean-but-late challenge is just a free kick. Only a
+      // reckless slide (fast, from behind) climbs into card territory.
+      let severity = slide ? 0.4 : 0.15;
+      severity += this.rng() * 0.35;
+      // Reckless: sliding in while the carrier is moving quickly.
+      if (slide && carrier.vel.len > 5) severity += 0.2;
+      if (defender.profile.aggression > 82) severity += 0.05;
       this._awardFoul(defender, carrier, severity);
     }
   }
@@ -276,11 +280,52 @@ export class Match {
     this.ball.setFromOwnerFoot(r.at.x, r.at.z);
     this.ball.owner = null; this.ballLoose = true; this.ballCarrier = null;
     this.possessionSide = r.side;
+
+    // Goal kicks: the keeper takes it. Clear the penalty area of everyone except
+    // that keeper and a single covering defender so the opposition can't camp on
+    // top of the keeper and steal the restart the instant he plays it.
+    if (r.type === RestartType.GoalKick) {
+      this._clearBoxForGoalKick(r.side);
+      // Hand the ball to the keeper to distribute; user keeps an outfield player.
+      const gk = this.players.find((p) => p.side === r.side && p.isGK && !p.sentOff);
+      if (gk) { gk.pos.set(r.at.x, r.at.z); this.gkCollect(gk); this.restartTimer = 0; }
+      if (r.side === 'home') {
+        const np = this._nearestFieldPlayer('home', new V2(0, 0));
+        if (np) this.userPlayer = np;
+      }
+      return;
+    }
+
     // Bring a taker to the ball.
     const taker = this._nearestFieldPlayer(r.side, r.at) || this.players.find((p) => p.side === r.side && !p.sentOff);
     if (taker) {
       taker.pos.set(r.at.x + attackZ(r.side) * -1.0 * 0, r.at.z - attackZ(r.side) * 1.0);
       if (r.side === 'home') this.userPlayer = taker;
+    }
+  }
+
+  // Push every player out of the defending penalty area for a goal kick, keeping
+  // only the keeper and one covering defender inside.
+  _clearBoxForGoalKick(side) {
+    const goalZ = defendingGoalZ(side);
+    const dir = attackZ(side); // toward midfield (out of the box)
+    // Keep one defender: the side's outfield player nearest their own goal.
+    let keepDef = null, kd = Infinity;
+    for (const p of this.players) {
+      if (p.side !== side || p.isGK || p.sentOff) continue;
+      const d = Math.abs(p.pos.z - goalZ);
+      if (d < kd) { kd = d; keepDef = p; }
+    }
+    const outZ = goalZ + dir * (PITCH.penaltyAreaDepth + 2.5);
+    for (const p of this.players) {
+      if (p.sentOff) continue;
+      if (p.isGK && p.side === side) continue;
+      if (p === keepDef) continue;
+      if (inPenaltyArea(p.pos, goalZ)) {
+        // Move straight out past the penalty-area line, keep lateral position.
+        p.pos.set(clamp(p.pos.x, -PITCH.penaltyAreaHalfWidth, PITCH.penaltyAreaHalfWidth), outZ);
+        p.vel.set(0, 0);
+      }
     }
   }
 
@@ -438,7 +483,7 @@ export class Match {
       }
     } else {
       this.hud.setCharge(0);
-      // Defensive actions: tackle / contain via the tackle key.
+      // Defensive actions: standing tackle (tackle key) or slide tackle (E).
       if (inp.justPressed(kb.tackle) && this.ballCarrier && this.ballCarrier.side !== 'home') {
         const c = this.ballCarrier;
         if (V2.dist(u.pos, c.pos) < 2.2) {
@@ -446,6 +491,18 @@ export class Match {
           this.attemptTackle(u, c, chance, u.vel.len > 4);
           u.tackleCooldown = 0.6;
         }
+      }
+      // Slide tackle: longer reach, but a mistimed lunge concedes a free kick
+      // (and only a card if it's reckless).
+      if (inp.justPressed(kb.slideTackle) && u.tackleCooldown <= 0) {
+        const c = this.ballCarrier;
+        if (c && c.side !== 'home' && V2.dist(u.pos, c.pos) < 3.8) {
+          const chance = clamp(0.45 + (u.profile.defending - c.profile.dribbling) / 120, 0.05, 0.92);
+          this.attemptTackle(u, c, chance, true);
+        } else {
+          u.slide(); // committed lunge that finds nothing
+        }
+        u.tackleCooldown = 1.4;
       }
     }
   }
@@ -469,6 +526,9 @@ export class Match {
     if (target) aim = V2.dir(u.pos, type === PassType.Through ? target.pos.clone().addScaled(new V2(0, attackZ('home')), 6) : target.pos);
     else aim = moving ? move.clone().normalize() : u.heading.clone();
     this.doPass(u, type, aim, clamp(charge, 0.2, 1), target);
+    // Remember who the user aimed at so the receiver runs onto the ball and we
+    // can hand control to them the moment they gather it.
+    this._userPassReceiver = target || null;
     this.hud.setCharge(0);
   }
 
@@ -535,6 +595,13 @@ export class Match {
         this._offsideArmed = false;
         this.carryBall(cand, dt);
         if (cand.side !== this.possessionSide) sfx.trap();
+        // If the user just passed to this player, hand them control on reception.
+        if (this._userPassReceiver) {
+          if (cand === this._userPassReceiver && cand.side === 'home' && !cand.isGK) {
+            this.userPlayer = cand;
+          }
+          this._userPassReceiver = null;
+        }
       } else {
         // Miscontrol: deflect the ball a little.
         const away = V2.sub(b.ground2D, cand.pos).normalize();

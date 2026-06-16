@@ -32,6 +32,7 @@ export const DEFAULT_KEYBINDS = {
   throughBall: 'KeyK',
   cross: 'KeyL',
   triggerRun: 'KeyE',
+  slideTackle: 'KeyE',
   switchPlayer: 'KeyQ',
   tackle: 'KeyJ',
 };
