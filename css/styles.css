@@ -195,3 +195,41 @@ kbd {
   pointer-events: none;
 }
 #toast.show { opacity: 1; transform: translateX(-50%) scale(1); }
+
+/* ---- set-piece overlays ---- */
+#sp-circle {
+  position: absolute; display: none; box-sizing: border-box;
+  border: 3px solid #ffd54a; border-radius: 50%;
+  transform: translate(-50%, -50%);
+  box-shadow: 0 0 12px rgba(255, 213, 74, 0.6), inset 0 0 8px rgba(255,213,74,0.4);
+  pointer-events: none;
+}
+#sp-aim {
+  position: absolute; display: none; width: 18px; height: 18px;
+  transform: translate(-50%, -50%); pointer-events: none;
+  border: 2px solid #00e0ff; border-radius: 50%;
+  box-shadow: 0 0 10px rgba(0, 224, 255, 0.8);
+}
+#sp-aim::before, #sp-aim::after {
+  content: ''; position: absolute; background: #00e0ff;
+}
+#sp-aim::before { left: 50%; top: -7px; width: 2px; height: 32px; transform: translateX(-50%); }
+#sp-aim::after { top: 50%; left: -7px; height: 2px; width: 32px; transform: translateY(-50%); }
+#sp-aim .sp-aim-label {
+  position: absolute; top: 20px; left: 50%; transform: translateX(-50%);
+  white-space: nowrap; font-size: 11px; font-weight: 800; letter-spacing: 1px;
+  color: #eaffff; text-shadow: 0 1px 3px #000;
+}
+#sp-prompt {
+  position: absolute; display: none; bottom: 64px; left: 50%; transform: translateX(-50%);
+  background: rgba(6, 14, 22, 0.82); padding: 8px 16px; border-radius: 10px;
+  border: 1px solid rgba(255,255,255,0.14); text-align: center;
+  font-size: 13px; font-weight: 700; color: #eef4fa; line-height: 1.6;
+  text-shadow: 0 1px 2px #000; pointer-events: none; max-width: 70vw;
+}
+#sp-prompt b { color: var(--accent); }
+#sp-prompt .key {
+  display: inline-block; min-width: 16px; padding: 1px 6px; margin: 0 1px;
+  background: rgba(255,255,255,0.16); border-radius: 4px; border: 1px solid rgba(255,255,255,0.25);
+  font-size: 12px;
+}

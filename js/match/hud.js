@@ -14,6 +14,9 @@ export class Hud {
         <span class="half">1st</span>
       </div>
       <div id="charge"><div id="chargefill"></div><span id="chargelabel"></span></div>
+      <div id="sp-circle"></div>
+      <div id="sp-aim"><span class="sp-aim-label"></span></div>
+      <div id="sp-prompt"></div>
       <div id="playerbar"></div>
       <canvas id="minimap" width="180" height="116"></canvas>
       <div id="commentary"></div>
@@ -27,6 +30,10 @@ export class Hud {
     this.charge = root.querySelector('#charge');
     this.chargeFill = root.querySelector('#chargefill');
     this.chargeLabel = root.querySelector('#chargelabel');
+    this.spCircle = root.querySelector('#sp-circle');
+    this.spAim = root.querySelector('#sp-aim');
+    this.spAimLabel = root.querySelector('#sp-aim .sp-aim-label');
+    this.spPrompt = root.querySelector('#sp-prompt');
     this.commentary = root.querySelector('#commentary');
     this.toastEl = root.querySelector('#toast');
     this.playerbar = root.querySelector('#playerbar');
@@ -60,11 +67,54 @@ export class Hud {
       `<span class="pb-stamv">${stam}</span>`;
   }
 
-  setCharge(frac, label) {
+  setCharge(frac, label, pos) {
     if (frac <= 0) { this.charge.style.display = 'none'; return; }
     this.charge.style.display = 'block';
     this.chargeFill.style.width = `${Math.round(frac * 100)}%`;
     this.chargeLabel.textContent = label || '';
+    // Optional screen-space placement (e.g. a power meter below the taker). When
+    // omitted we fall back to the CSS default (bottom-centre).
+    if (pos) {
+      this.charge.style.left = `${Math.round(pos.x)}px`;
+      this.charge.style.bottom = 'auto';
+      this.charge.style.top = `${Math.round(pos.y)}px`;
+      this.charge.style.transform = 'translateX(-50%)';
+    } else {
+      this.charge.style.left = '50%';
+      this.charge.style.top = 'auto';
+      this.charge.style.bottom = '26px';
+      this.charge.style.transform = 'translateX(-50%)';
+    }
+  }
+
+  // ---- set-piece overlays ----------------------------------------------------
+  // Aiming reticle (free kicks / corners): a marker at the projected target with
+  // an optional label (shot type).
+  setAimReticle(p) {
+    if (!p) { this.spAim.style.display = 'none'; return; }
+    this.spAim.style.display = 'block';
+    this.spAim.style.left = `${Math.round(p.x)}px`;
+    this.spAim.style.top = `${Math.round(p.y)}px`;
+    this.spAimLabel.textContent = p.label || '';
+  }
+
+  // Pulsing penalty accuracy ring centred on the ball; r is the radius in px.
+  setPenaltyCircle(p) {
+    if (!p) { this.spCircle.style.display = 'none'; return; }
+    const d = Math.max(8, Math.round(p.r * 2));
+    this.spCircle.style.display = 'block';
+    this.spCircle.style.width = `${d}px`;
+    this.spCircle.style.height = `${d}px`;
+    this.spCircle.style.left = `${Math.round(p.x)}px`;
+    this.spCircle.style.top = `${Math.round(p.y)}px`;
+    if (p.color) this.spCircle.style.borderColor = p.color;
+  }
+
+  // Instructional prompt block (controls / "call 2nd player").
+  setSetPiecePrompt(html) {
+    if (!html) { this.spPrompt.style.display = 'none'; return; }
+    this.spPrompt.style.display = 'block';
+    this.spPrompt.innerHTML = html;
   }
 
   setCommentary(lines) {

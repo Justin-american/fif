@@ -18,6 +18,7 @@ import { updateGK, tryShotStop } from './goalkeeper.js';
 import { Referee, RestartType, restartForOutOfPlay } from './referee.js';
 import { buildPitchMesh } from './scene.js';
 import { ShotType, PassType, buildShot, buildPass } from './shots.js';
+import { SetPieceController } from './setpieces.js';
 
 const DT = 1 / 60;
 
@@ -49,6 +50,7 @@ export class Match {
     this.restartTimer = 0;
     this.running = true;
     this._acc = 0;
+    this.setPieces = new SetPieceController(this);
 
     // Rolling snapshot buffer used to play an instant replay after a goal.
     this._history = [];
@@ -303,6 +305,11 @@ export class Match {
       return;
     }
 
+    // Interactive set pieces (free kicks, penalties, corners) take over the match
+    // with a third-person view, aiming and power. The controller handles ball
+    // placement, player positioning and who the user controls.
+    if (this.setPieces.begin(r)) return;
+
     // Bring a taker to the ball.
     const taker = this._nearestFieldPlayer(r.side, r.at) || this.players.find((p) => p.side === r.side && !p.sentOff);
     if (taker) {
@@ -388,8 +395,8 @@ export class Match {
   }
 
   _fixedUpdate(dt) {
-    // Clock / halves.
-    if (this.restart.type !== RestartType.GoalCelebration) this.referee.tick(dt);
+    // Clock / halves. The clock pauses while a dead-ball routine is being set up.
+    if (this.restart.type !== RestartType.GoalCelebration && !this.setPieces.active) this.referee.tick(dt);
     if (this.referee.matchOver && this.mode === GameMode.FullMatch) { this._endMatch(); return; }
     if (this.referee.halfOver && this.referee.half === 1 && this.mode === GameMode.FullMatch) {
       this.referee.half = 2; this.referee.clock = 0; this.referee.stoppage = 0;
@@ -399,6 +406,14 @@ export class Match {
     }
 
     if (this.restartTimer > 0) this.restartTimer -= dt;
+
+    // Active set piece: the controller owns input/positioning until the ball is
+    // struck. While it's still being aimed, skip the normal simulation so the
+    // players hold their positions (no "moshpit") and the ball stays on the spot.
+    if (this.setPieces.active) {
+      const aiming = this.setPieces.update(dt);
+      if (aiming) { this._recordHistory(); return; }
+    }
 
     // Input → user player.
     this._handleUserInput(dt);
@@ -704,16 +719,46 @@ export class Match {
         if (this._pendingShot) {
           const gk = this.players.find((p) => p.side === concedeSide && p.isGK && !p.sentOff);
           if (gk) {
-            // Always throw himself at an on-target shot (dive animation), even if
-            // he doesn't reach it.
-            gk.dive(Math.sign(b.pos.x - gk.pos.x) || 1);
-            if (tryShotStop(gk, this, b.pos.x, b.pos.y)) {
-              // Parry: reflect the ball back into play, loose.
-              b.pos.z = (concedeSide === 'home' ? -1 : 1) * (hl - 1.5);
-              b.vel.z = -b.vel.z * 0.4; b.vel.x *= 0.5; b.vel.y = 1.5; b.spin = 0;
+            // For a penalty the keeper has already committed his dive direction
+            // (guessed before the kick); whether he saves depends on guessing the
+            // right way. For open play he throws himself toward the ball.
+            let saved;
+            if (this._penaltyShot) {
+              const diveDir = this._penaltyShot.diveDir;
+              gk.dive(diveDir || (Math.sign(b.pos.x - gk.pos.x) || 1));
+              saved = this._penaltySaveCheck(gk, b.pos.x, b.pos.y, diveDir);
+              this._penaltyShot = null;
+            } else {
+              gk.dive(Math.sign(b.pos.x - gk.pos.x) || 1);
+              saved = tryShotStop(gk, this, b.pos.x, b.pos.y);
+            }
+            if (saved) {
+              // The keeper got something on it — but he doesn't gather everything
+              // cleanly. A powerful strike can only be deflected to safety, and
+              // often that means tipping it behind for a corner. Weaker shots are
+              // parried back into play (a rebound) or held.
+              const power = Math.hypot(b.vel.x, b.vel.y, b.vel.z);
+              const endZ = (concedeSide === 'home' ? -1 : 1) * hl;
               b.lastTouch = gk; this._pendingShot = null;
               sfx.save(); this.hud.toast('SAVE!');
               this._addCommentary(`Great save by ${gk.profile.name}!`);
+              // Tip-over chance climbs with shot power; a hard shot near a post is
+              // very likely to be pushed behind.
+              const nearPost = Math.abs(Math.abs(b.pos.x) - PITCH.goalWidth / 2) < 1.6;
+              const tipOver = clamp((power - 20) / 22 + (nearPost ? 0.2 : 0), 0, 0.85);
+              if (this.rng() < tipOver) {
+                // Deflected behind: award a corner to the attacking side.
+                const cornerSide = concedeSide === 'home' ? 'away' : 'home';
+                const cornerX = Math.sign(b.pos.x || 1) * (hw - 0.5);
+                this._addCommentary(`${gk.profile.name} tips it behind — corner!`);
+                this._setupRestart({ type: RestartType.Corner, side: cornerSide, at: new V2(cornerX, endZ) });
+                this.referee.emit(`Corner — ${this._sideName(cornerSide)}.`);
+                this.hud.toast('CORNER!');
+                return;
+              }
+              // Parry back into play: a loose rebound in front of goal.
+              b.pos.z = (concedeSide === 'home' ? -1 : 1) * (hl - 1.5);
+              b.vel.z = -b.vel.z * 0.4; b.vel.x *= 0.5; b.vel.y = 1.5; b.spin = 0;
               return;
             }
           }
@@ -730,7 +775,7 @@ export class Match {
     // Fully out of play.
     const out = Math.abs(b.pos.x) > hw + BALL_R || Math.abs(b.pos.z) > hl + BALL_R;
     if (out && this.restart.type !== RestartType.GoalCelebration && this.restartTimer <= 0) {
-      this._pendingShot = null;
+      this._pendingShot = null; this._penaltyShot = null;
       // In practice drills a miss simply re-spawns the next attempt.
       if (this.mode !== GameMode.FullMatch) { this._startDrill(); return; }
       const lastSide = b.lastTouch ? b.lastTouch.side : this.possessionSide;
@@ -740,6 +785,26 @@ export class Match {
       else if (r.type === RestartType.GoalKick) this.referee.emit(`Goal kick — ${this._sideName(r.side)}.`);
       this._setupRestart(r);
     }
+  }
+
+  // Penalty save model: the keeper has already committed a dive direction. He can
+  // only save the ball if he dived the right way (or it's hit near the middle),
+  // and even then placement and power matter. Returns true if saved.
+  _penaltySaveCheck(gk, crossX, crossY, diveDir) {
+    const a = gk.profile;
+    const ballSide = Math.sign(crossX) || 0;           // -1 left, 0 central, +1 right
+    const high = clamp(crossY, 0, PITCH.goalHeight);
+    // Right way? Central shots can be saved either way (legs/body).
+    const central = Math.abs(crossX) < 1.4;
+    const rightWay = central || ballSide === Math.sign(diveDir || 0);
+    if (!rightWay) return false;
+    const skill = (a.physical * 0.5 + (a.composure || 60) * 0.5 + (a.diving || a.physical) * 0.0) / 100;
+    // Base chance when he goes the right way; harder to reach the very corners and
+    // high shots.
+    let chance = (central ? 0.32 : 0.5) + skill * 0.22;
+    chance -= Math.min(0.28, Math.abs(crossX) / (PITCH.goalWidth / 2) * 0.28); // tucked into the corner
+    chance -= Math.min(0.2, (high / PITCH.goalHeight) * 0.2);                  // up high
+    return this.rng() < clamp(chance, 0.04, 0.85);
   }
 
   _scoreGoal(scoringSide) {
@@ -752,7 +817,7 @@ export class Match {
     }
     sfx.goalHorn();
     this.hud.toast('GOAL!');
-    this._pendingShot = null;
+    this._pendingShot = null; this._penaltyShot = null;
     this.restart = { type: RestartType.GoalCelebration };
     // Brief celebration (ball billows the net), then an instant replay, then the
     // restart. Drills just respawn the ball without a replay.
@@ -790,6 +855,8 @@ export class Match {
 
   // ---- presentation ----------------------------------------------------------
   _updateCamera(frame) {
+    // Set pieces use a dedicated third-person / behind-the-goal camera.
+    if (this.setPieces.active && this.setPieces.updateCamera(frame)) return;
     const style = this.settings.cameraStyle;
     // Broadcast-style side camera: it sits along the near touchline (-x) and
     // tracks play up and down the pitch (z). Tele is closer/lower, Far pulls back.
