@@ -39,18 +39,15 @@ export class Referee {
   get halfOver() { return this.clock >= this.halfLength + this.stoppage; }
   get matchOver() { return this.half >= 2 && this.halfOver; }
 
-  // Foul severity 0..1 -> card decision with escalation per player.
+  // Foul severity 0..1 -> card decision. Ordinary tackles that mistime the ball
+  // are just free kicks (no card). Only genuinely rough/reckless challenges
+  // (high severity — typically a bad slide) are cautioned or sent off.
   judgeFoul(fouler, severity) {
     this.warnings[fouler.id] = this.warnings[fouler.id] || 0;
     let card = 'none';
-    if (severity > 0.8) card = 'red';
-    else if (severity > 0.5) card = 'yellow';
-    else {
-      // Verbal warning first; a second warning becomes a yellow.
-      this.warnings[fouler.id] += 1;
-      if (this.warnings[fouler.id] >= 2) card = 'yellow';
-      else card = 'warning';
-    }
+    if (severity > 0.85) card = 'red';
+    else if (severity > 0.6) card = 'yellow';
+    else card = 'none'; // clean-but-mistimed challenge: free kick only
 
     if (card === 'yellow') {
       fouler.cardState = (fouler.cardState || 0) + 1;
@@ -65,8 +62,6 @@ export class Referee {
       fouler.cardState = 3;
       fouler.sentOff = true;
       this.emit(`🟥 Straight red — ${fouler.profile.name} is SENT OFF!`);
-    } else if (card === 'warning') {
-      this.emit(`🗣️ Referee warns ${fouler.profile.name}.`);
     }
     return card;
   }

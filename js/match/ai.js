@@ -24,9 +24,39 @@ export function updateAI(p, world, dt) {
   const hasBall = world.ballCarrier === p;
   const teamHasBall = world.possessionSide === p.side;
 
+  // A genuinely loose ball (nobody carrying it): the closest couple of players
+  // from BOTH sides should sprint to win it rather than standing in shape.
+  if (!world.ballCarrier && world.ballLoose) {
+    if (chaseLooseBall(p, world, dt)) return;
+  }
+
   if (hasBall) onBallAI(p, world, dt);
   else if (teamHasBall) offBallAttackAI(p, world, dt);
   else defendAI(p, world, dt);
+}
+
+// Returns true (and drives the player) if this player is one of the nearest of
+// his side to a loose ball and close enough to realistically contest it. This
+// makes both teams fight for 50/50s instead of leaving it to a single defender.
+function chaseLooseBall(p, world, dt) {
+  const ball2d = world.ball.ground2D;
+  // Rank own-side outfield players by distance to the ball.
+  const mine = world.players
+    .filter((q) => q.side === p.side && !q.isGK && !q.sentOff)
+    .map((q) => ({ q, d: V2.dist(q.pos, ball2d) }))
+    .sort((a, b) => a.d - b.d);
+  const myDist = V2.dist(p.pos, ball2d);
+  const rank = mine.findIndex((e) => e.q === p);
+  // Only the two closest of each side commit; and only when it's actually
+  // reachable (otherwise hold shape). The very closest will commit from further.
+  const reach = rank === 0 ? 32 : 14;
+  if (rank > 1 || myDist > reach) return false;
+  // High balls can't be controlled on the floor — don't sprint under them.
+  if (world.ball.pos.y > 2.4) return false;
+  const aim = ballPredict(world, p);
+  const desired = V2.dir(p.pos, aim).scale(p.effectiveTopSpeed(true));
+  p.driveTo(desired, dt, true);
+  return true;
 }
 
 // ---- on the ball -------------------------------------------------------------

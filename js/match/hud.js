@@ -14,6 +14,7 @@ export class Hud {
         <span class="half">1st</span>
       </div>
       <div id="charge"><div id="chargefill"></div><span id="chargelabel"></span></div>
+      <div id="playerbar"></div>
       <canvas id="minimap" width="180" height="116"></canvas>
       <div id="commentary"></div>
       <div id="toast"></div>
@@ -28,6 +29,7 @@ export class Hud {
     this.chargeLabel = root.querySelector('#chargelabel');
     this.commentary = root.querySelector('#commentary');
     this.toastEl = root.querySelector('#toast');
+    this.playerbar = root.querySelector('#playerbar');
     this.mini = root.querySelector('#minimap');
     this.mctx = this.mini.getContext('2d');
   }
@@ -42,6 +44,21 @@ export class Hud {
 
   setScore(h, a) { this.scoreEl.textContent = `${h} - ${a}`; }
   setClock(label, half) { this.clockEl.textContent = label; this.halfEl.textContent = half; }
+
+  // Bottom bar showing the player you currently control: name, foot, stamina.
+  setPlayerInfo(player) {
+    if (!this.playerbar) return;
+    if (!player) { this.playerbar.style.display = 'none'; return; }
+    this.playerbar.style.display = 'flex';
+    const foot = player.profile.foot === 'L' ? 'Left footed' : 'Right footed';
+    const stam = Math.round(player.stamina);
+    this.playerbar.innerHTML =
+      `<span class="pb-name">${player.profile.name}</span>` +
+      `<span class="pb-sep">—</span>` +
+      `<span class="pb-foot">${foot}</span>` +
+      `<span class="pb-stam"><i style="width:${stam}%"></i></span>` +
+      `<span class="pb-stamv">${stam}</span>`;
+  }
 
   setCharge(frac, label) {
     if (frac <= 0) { this.charge.style.display = 'none'; return; }

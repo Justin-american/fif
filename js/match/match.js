@@ -174,7 +174,8 @@ export class Match {
 
   doShot(p, type, aim, charge) {
     const ballAir = this.ball.pos.y > 0.6;
-    const k = buildShot(type, aim, charge, p, this.rng, ballAir);
+    const dist = V2.dist(p.pos, attackingGoalCentre(p.side));
+    const k = buildShot(type, aim, charge, p, this.rng, ballAir, dist);
     this.ball.kick(k.dir, k.power, k.lift, k.spin);
     this.ball.lastTouch = p; this.ballCarrier = null; this.ballLoose = true;
     p.kickCooldown = 0.4;
@@ -548,6 +549,9 @@ export class Match {
   // ---- goals / out of play ---------------------------------------------------
   _checkBallOutAndGoals(dt) {
     const b = this.ball;
+    // Once a goal is celebrating (or being replayed) the ball still sits beyond
+    // the line for a moment — never re-count it as another goal.
+    if (this.restart.type === RestartType.GoalCelebration) return;
     const hl = PITCH.halfLength, hw = PITCH.halfWidth;
     // Goal-line plane crossing.
     if (Math.abs(b.pos.z) >= hl - 0.02 && Math.abs(b.pos.z) <= hl + 1.2) {
@@ -683,6 +687,7 @@ export class Match {
     const half = this.referee.half === 2 ? '2nd' : '1st';
     this.hud.setClock(this.referee.timeLabel(), this.mode === GameMode.FullMatch ? half : 'Practice');
     this.hud.setCommentary(this.referee.log);
+    this.hud.setPlayerInfo(this.userPlayer);
     this.hud.drawMinimap(this);
   }
 
