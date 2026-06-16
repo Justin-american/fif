@@ -7,7 +7,7 @@ import { getFormation } from '../data/formations.js';
 import { groupOf } from '../data/formations.js';
 import { PlayStyle } from '../data/formations.js';
 import { GameMode, opponentSkill } from '../core/gameState.js';
-import { sfx, startCrowd, stopCrowd } from '../core/audio.js';
+import { sfx } from '../core/audio.js';
 import { PITCH, fromFormation, inBounds, attackingGoalCentre, defendingGoalZ, attackingPenaltySpot, attackZ } from './pitch.js';
 import { Ball, BALL_R } from './ball.js';
 import { Player } from './player.js';
@@ -27,6 +27,7 @@ export class Match {
     this.opts = opts;
     this.mode = opts.mode;
     this.settings = opts.settings;
+    this.kb = (this.settings && this.settings.keybinds) || undefined;
     this.onExit = opts.onExit;
 
     this.homeTeam = opts.homeTeam;
@@ -56,10 +57,15 @@ export class Match {
     this._spawn();
     this.hud = new Hud(hudRoot);
     this.hud.setTeams(this.homeTeam, this.awayTeam);
-    this.input = new Input();
-    startCrowd();
+    this.input = new Input(this.kb);
 
-    this._kickoff('home');
+    // Start the correct opening situation: kick-off for a full match, or the
+    // relevant set-piece drill for practice modes.
+    if (this.mode === GameMode.FullMatch) {
+      this._kickoff('home');
+    } else {
+      this._startDrill();
+    }
     this._lastT = performance.now();
     this._tick = this._tick.bind(this);
     this._onResize = () => this._resize();
@@ -81,8 +87,10 @@ export class Match {
     this.scene.fog = new THREE.Fog(0x7fb6e6, 120, 240);
 
     this.camera = new THREE.PerspectiveCamera(55, this.container.clientWidth / this.container.clientHeight, 0.5, 600);
-    this.camera.position.set(0, 28, -70);
-    this.camera.lookAt(0, 0, 0);
+    // Broadcast-style side camera: sit along the near touchline looking across.
+    this.camera.position.set(-(PITCH.halfWidth + 14), 30, 0);
+    this._camLook = { x: 0, y: 1.2, z: 0 };
+    this.camera.lookAt(this._camLook.x, this._camLook.y, this._camLook.z);
   }
 
   _buildScene() {
@@ -273,9 +281,27 @@ export class Match {
       taker.pos.set(r.at.x + attackZ(r.side) * -1.0 * 0, r.at.z - attackZ(r.side) * 1.0);
       if (r.side === 'home') this.userPlayer = taker;
     }
-    if (this.mode === GameMode.PracticePenalty || this.mode === GameMode.PracticeFreeKick) {
-      this.drillAttempts += 1;
+  }
+
+  // Set up (or reset) the current practice drill so it can be repeated. Counts
+  // an attempt each time the ball is placed for the user to strike.
+  _startDrill() {
+    let at, type;
+    if (this.mode === GameMode.PracticePenalty) {
+      at = attackingPenaltySpot('home');
+      type = RestartType.Penalty;
+    } else if (this.mode === GameMode.PracticeFreeKick) {
+      at = new V2((this.rng() - 0.5) * 24, attackZ('home') * (PITCH.halfLength - 22));
+      type = RestartType.FreeKick;
+    } else {
+      // Attacking drill: start the user on the ball around the attacking third.
+      at = new V2((this.rng() - 0.5) * 16, attackZ('home') * 18);
+      type = RestartType.FreeKick;
     }
+    this.drillAttempts += 1;
+    this._drillHadControl = false;
+    this._drillResetT = 0;
+    this._setupRestart({ type, side: 'home', at });
   }
 
   // ---- main loop -------------------------------------------------------------
@@ -327,8 +353,30 @@ export class Match {
     this._resolvePossession(dt);
     this._checkBallOutAndGoals(dt);
 
+    // Practice drills: respawn the next attempt once it's clearly over.
+    if (this.mode !== GameMode.FullMatch) this._updateDrill(dt);
+
     // Run trigger decays.
     if (this.triggeredRunner) { this.triggeredRunner.runTimer = (this.triggeredRunner.runTimer || 0); }
+  }
+
+  // Respawn a practice drill a moment after the keeper/opponent gathers the ball
+  // or it comes to rest with the user no longer in possession (e.g. a save) —
+  // but only once the user has actually taken their attempt.
+  _updateDrill(dt) {
+    if (this.restart.type === RestartType.GoalCelebration) { this._drillResetT = 0; return; }
+    if (this.restartTimer > 0) { this._drillResetT = 0; return; }
+    const homeHas = this.ballCarrier && this.ballCarrier.side === 'home';
+    if (homeHas) { this._drillHadControl = true; this._drillResetT = 0; return; }
+    if (!this._drillHadControl) { this._drillResetT = 0; return; }
+    const awayHas = this.ballCarrier && this.ballCarrier.side === 'away';
+    const settled = this.ballLoose && this.ball.speed2D < 0.15;
+    if (awayHas || settled) {
+      this._drillResetT = (this._drillResetT || 0) + dt;
+      if (this._drillResetT > 1.4) { this._drillResetT = 0; this._startDrill(); }
+    } else {
+      this._drillResetT = 0;
+    }
   }
 
   // ---- user control ----------------------------------------------------------
@@ -336,18 +384,25 @@ export class Match {
     const u = this.userPlayer;
     if (!u || u.sentOff) { this.userPlayer = this._nearestFieldPlayer('home', this.ball.ground2D); return; }
     const inp = this.input;
-    const mv = inp.moveAxis();
+    const kb = inp.kb;
+    // Screen-space axis → world-space using the current camera orientation so
+    // WASD always feels correct (fixes the inverted controls on side cameras).
+    const ax = inp.moveAxis();
+    const basis = this._cameraGroundBasis();
+    const move = new V2(
+      basis.right.x * ax.x + basis.fwd.x * ax.z,
+      basis.right.z * ax.x + basis.fwd.z * ax.z,
+    );
     const hasBall = this.ballCarrier === u;
     const defending = this.possessionSide !== 'home' || this.ballLoose;
 
     // Switch player when defending.
-    if ((inp.justPressed('KeyQ') || (defending && inp.justPressed('Space'))) && !hasBall) {
+    if ((inp.justPressed(kb.switchPlayer) || (defending && inp.justPressed(kb.shoot))) && !hasBall) {
       const np = this._nearestFieldPlayer('home', this.ball.ground2D);
       if (np) { this.userPlayer = np; }
     }
 
     // Movement.
-    const move = new V2(mv.x, mv.z);
     const moving = move.lenSq > 0.01;
     if (moving) move.normalize();
     const desired = move.scale(u.effectiveTopSpeed(inp.sprint()));
@@ -360,30 +415,30 @@ export class Match {
       let aim = V2.dir(u.pos, goal);
       if (moving) aim = aim.add(move.scale(0.5)).normalize();
 
-      // Shoot (charge on Space).
-      if (inp.justReleased('Space')) {
-        const charge = clamp(inp_held(inp, 'Space'), 0.15, 1);
+      // Shoot (charge on the shoot key).
+      if (inp.justReleased(kb.shoot)) {
+        const charge = clamp(inp.held(kb.shoot), 0.15, 1);
         const type = this._userShotType(u, goal);
         this.doShot(u, type, aim, charge);
         this.hud.setCharge(0);
-      } else if (inp.isDown('Space')) {
-        this.hud.setCharge(clamp(inp.held('Space'), 0, 1), 'Shot');
+      } else if (inp.isDown(kb.shoot)) {
+        this.hud.setCharge(clamp(inp.held(kb.shoot), 0, 1), 'Shot');
       }
 
       // Passes.
-      if (inp.justReleased('KeyJ')) { this._userPass(u, PassType.Ground, move, inp.held('KeyJ')); }
-      else if (inp.isDown('KeyJ')) this.hud.setCharge(clamp(inp.held('KeyJ'), 0, 1), 'Pass');
-      if (inp.justPressed('KeyL')) this._userPass(u, PassType.Lofted, move, 0.6);     // cross / lofted
-      if (inp.justPressed('KeyK')) this._userPass(u, PassType.Through, move, 0.5);    // through ball
+      if (inp.justReleased(kb.pass)) { this._userPass(u, PassType.Ground, move, inp.held(kb.pass)); }
+      else if (inp.isDown(kb.pass)) this.hud.setCharge(clamp(inp.held(kb.pass), 0, 1), 'Pass');
+      if (inp.justPressed(kb.cross)) this._userPass(u, PassType.Lofted, move, 0.6);     // cross / lofted
+      if (inp.justPressed(kb.throughBall)) this._userPass(u, PassType.Through, move, 0.5); // through ball
       // Trigger a teammate run.
-      if (inp.justPressed('KeyE')) {
+      if (inp.justPressed(kb.triggerRun)) {
         const mate = this._bestRunner(u);
         if (mate) { this.triggeredRunner = mate; mate.runTimer = 1.5; }
       }
     } else {
       this.hud.setCharge(0);
-      // Defensive actions: tackle / contain via J.
-      if (inp.justPressed('KeyJ') && this.ballCarrier && this.ballCarrier.side !== 'home') {
+      // Defensive actions: tackle / contain via the tackle key.
+      if (inp.justPressed(kb.tackle) && this.ballCarrier && this.ballCarrier.side !== 'home') {
         const c = this.ballCarrier;
         if (V2.dist(u.pos, c.pos) < 2.2) {
           const chance = clamp(0.4 + (u.profile.defending - c.profile.dribbling) / 120, 0.05, 0.9);
@@ -396,10 +451,11 @@ export class Match {
 
   _userShotType(u, goal) {
     const inp = this.input;
+    const kb = inp.kb;
     const dist = V2.dist(u.pos, goal);
-    if (inp.isDown('KeyC')) return ShotType.Finesse;
-    if (inp.isDown('KeyV')) return ShotType.Trivela;
-    if (inp.isDown('KeyB')) return ShotType.Chip;
+    if (inp.isDown(kb.finesse)) return ShotType.Finesse;
+    if (inp.isDown(kb.trivela)) return ShotType.Trivela;
+    if (inp.isDown(kb.chip)) return ShotType.Chip;
     if (this.ball.pos.y > 0.8) return ShotType.Volley;
     if (u.style === PlayStyle.FinesseSpecialist && dist > 14) return ShotType.Finesse;
     return dist > 20 ? ShotType.Power : ShotType.LowDriven;
@@ -526,6 +582,8 @@ export class Match {
     const out = Math.abs(b.pos.x) > hw + BALL_R || Math.abs(b.pos.z) > hl + BALL_R;
     if (out && this.restart.type !== RestartType.GoalCelebration && this.restartTimer <= 0) {
       this._pendingShot = null;
+      // In practice drills a miss simply re-spawns the next attempt.
+      if (this.mode !== GameMode.FullMatch) { this._startDrill(); return; }
       const lastSide = b.lastTouch ? b.lastTouch.side : this.possessionSide;
       const r = restartForOutOfPlay(b.ground2D, lastSide);
       if (r.type === RestartType.ThrowIn) this.referee.emit(`Throw-in — ${this._sideName(r.side)}.`);
@@ -557,19 +615,12 @@ export class Match {
 
   _resetDrill() {
     // Practice attacking / penalties / free kicks: re-spawn the drill ball.
-    let at = new V2(0, attackZ('home') * 30);
-    if (this.mode === GameMode.PracticePenalty) at = attackingPenaltySpot('home');
-    else if (this.mode === GameMode.PracticeFreeKick) at = new V2((this.rng() - 0.5) * 24, attackZ('home') * (PITCH.halfLength - 22));
-    this.drillAttempts += 1;
-    this._setupRestart({ type: this.mode === GameMode.PracticePenalty ? RestartType.Penalty : RestartType.FreeKick, side: 'home', at });
-    this.restart = this.restart; // keep
-    this.restartTimer = 0.3;
+    this._startDrill();
   }
 
   _endMatch() {
     this.running = false;
     sfx.whistleLong();
-    stopCrowd();
     const res = `${this.homeTeam.shortName} ${this.scoreHome} - ${this.scoreAway} ${this.awayTeam.shortName}`;
     setTimeout(() => this.onExit && this.onExit({ result: res }), 600);
   }
@@ -579,17 +630,37 @@ export class Match {
   // ---- presentation ----------------------------------------------------------
   _updateCamera(frame) {
     const style = this.settings.cameraStyle;
-    let height = 30, back = 60, lead = 0.6;
-    if (style === 'Tele') { height = 22; back = 48; }
-    else if (style === 'Far') { height = 42; back = 85; }
+    // Broadcast-style side camera: it sits along the near touchline (-x) and
+    // tracks play up and down the pitch (z). Tele is closer/lower, Far pulls back.
+    let extra = 14, height = 30, pan = 0.28;
+    if (style === 'Tele') { extra = 8; height = 23; pan = 0.34; }
+    else if (style === 'Far') { extra = 30; height = 44; pan = 0.2; }
     const b = this.ball.pos;
-    const tx = clamp(b.x * 0.6, -20, 20);
-    const tz = b.z - back;
+    const camX = -(PITCH.halfWidth + extra);
+    const tz = clamp(b.z, -PITCH.halfLength + 4, PITCH.halfLength - 4);
     const cam = this.camera.position;
-    cam.x = lerp(cam.x, tx, 1 - Math.pow(0.001, frame));
-    cam.y = lerp(cam.y, height, 1 - Math.pow(0.001, frame));
-    cam.z = lerp(cam.z, tz, 1 - Math.pow(0.001, frame));
-    this.camera.lookAt(b.x * 0.4, 1, b.z + lead * 10);
+    const k = 1 - Math.pow(0.0016, frame);
+    cam.x = lerp(cam.x, camX, k);
+    cam.y = lerp(cam.y, height, k);
+    cam.z = lerp(cam.z, tz, k);
+    // Look across the pitch toward the play, panning slightly with the ball's x.
+    const lx = clamp(b.x * pan, -10, 10);
+    this._camLook.x = lerp(this._camLook.x, lx, k);
+    this._camLook.y = 1.2;
+    this._camLook.z = lerp(this._camLook.z, tz, k);
+    this.camera.lookAt(this._camLook.x, this._camLook.y, this._camLook.z);
+  }
+
+  // Ground-plane camera basis so movement is camera-relative (W = away from the
+  // camera/up the screen, D = screen-right) regardless of the camera angle.
+  _cameraGroundBasis() {
+    const cam = this.camera.position;
+    const look = this._camLook;
+    let fx = look.x - cam.x, fz = look.z - cam.z;
+    const fl = Math.hypot(fx, fz) || 1;
+    fx /= fl; fz /= fl;
+    // World right = forward × up (up = +y) projected on the ground.
+    return { fwd: new V2(fx, fz), right: new V2(-fz, fx) };
   }
 
   _syncMeshes(frame) {
@@ -616,11 +687,10 @@ export class Match {
     this.renderer.setSize(w, h);
   }
 
-  togglePause(p) { this.paused = p; if (p) stopCrowd(); else startCrowd(); }
+  togglePause(p) { this.paused = p; }
 
   dispose() {
     this.running = false;
-    stopCrowd();
     window.removeEventListener('resize', this._onResize);
     this.renderer.dispose();
     if (this.renderer.domElement.parentNode) this.renderer.domElement.parentNode.removeChild(this.renderer.domElement);
@@ -630,6 +700,3 @@ export class Match {
     });
   }
 }
-
-// Helper to read hold time with a sane default for Space charge.
-function inp_held(inp, code) { return inp.held(code); }

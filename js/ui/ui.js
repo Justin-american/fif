@@ -1,7 +1,7 @@
 // ui.js — screen flow built as plain DOM: Main Menu → Team Select / Practice /
 // Settings, carrying state in gameState. Launches the Three.js Match when ready.
 import { TEAMS } from '../data/teams.js';
-import { state, GameMode, Difficulty, PassAssistance, CameraStyle, saveSettings, loadSettings } from '../core/gameState.js';
+import { state, GameMode, Difficulty, PassAssistance, CameraStyle, DEFAULT_KEYBINDS, saveSettings, loadSettings } from '../core/gameState.js';
 import { sfx, applyVolumes } from '../core/audio.js';
 import { Match } from '../match/match.js';
 
@@ -41,7 +41,7 @@ export class UI {
     card.append(start, practice, settings);
     const foot = document.createElement('p');
     foot.className = 'foot';
-    foot.textContent = 'Move WASD/Arrows · Sprint Shift · Shoot Space · Pass J · Through K · Cross L · Run E · Switch/Tackle Q/J';
+    foot.textContent = 'Move WASD/Arrows · Sprint Shift · Shoot Space · Pass J · Through K · Cross L · Run E · Switch/Tackle Q/J · Rebind & full guide in Settings → Controls';
     card.append(foot);
     this.root.append(card);
   }
@@ -153,13 +153,47 @@ export class UI {
   }
 
   // ---- Settings --------------------------------------------------------------
-  showSettings(onBack) {
+  showSettings(onBack, tab = 'game') {
     this._clear();
-    const s = state.settings;
     const panel = document.createElement('div');
     panel.className = 'panel settings';
     panel.innerHTML = `<h2>Settings</h2>`;
 
+    // Tab bar: Game options vs Controls (reference + rebinding).
+    const tabs = document.createElement('div');
+    tabs.className = 'tabs';
+    const gameTab = this._btn('Game', 'tab');
+    const ctrlTab = this._btn('Controls', 'tab');
+    tabs.append(gameTab, ctrlTab);
+    panel.append(tabs);
+
+    const body = document.createElement('div');
+    body.className = 'settings-body';
+    panel.append(body);
+
+    const setActive = (name) => {
+      gameTab.classList.toggle('active', name === 'game');
+      ctrlTab.classList.toggle('active', name === 'controls');
+      body.innerHTML = '';
+      if (name === 'game') this._renderGameSettings(body);
+      else this._renderControls(body);
+    };
+    gameTab.addEventListener('click', () => setActive('game'));
+    ctrlTab.addEventListener('click', () => setActive('controls'));
+
+    const back = this._btn('Back', 'primary');
+    back.addEventListener('click', () => { this._persist(); onBack ? onBack() : this.showMainMenu(); });
+    panel.append(back);
+    const note = document.createElement('p');
+    note.className = 'foot'; note.textContent = 'Settings save automatically (localStorage).';
+    panel.append(note);
+    this.root.append(panel);
+
+    setActive(tab === 'controls' ? 'controls' : 'game');
+  }
+
+  _renderGameSettings(body) {
+    const s = state.settings;
     const select = (label, options, value, onChange) => {
       const row = document.createElement('label');
       row.className = 'setting';
@@ -172,7 +206,7 @@ export class UI {
       });
       sel.addEventListener('change', () => { onChange(sel.value); this._persist(); });
       row.append(sel);
-      panel.append(row);
+      body.append(row);
     };
     const slider = (label, key) => {
       const row = document.createElement('label');
@@ -186,7 +220,7 @@ export class UI {
         applyVolumes(); this._persist();
       });
       row.append(input, val);
-      panel.append(row);
+      body.append(row);
     };
 
     select('Match length (min)', [3, 5, 7, 10], s.matchLengthMinutes, (v) => s.matchLengthMinutes = parseInt(v, 10));
@@ -195,15 +229,122 @@ export class UI {
     select('Camera', CameraStyle, s.cameraStyle, (v) => s.cameraStyle = v);
     slider('Master volume', 'masterVolume');
     slider('SFX volume', 'sfxVolume');
-    slider('Crowd volume', 'musicVolume');
+  }
 
-    const back = this._btn('Back', 'primary');
-    back.addEventListener('click', () => { this._persist(); onBack ? onBack() : this.showMainMenu(); });
-    panel.append(back);
-    const note = document.createElement('p');
-    note.className = 'foot'; note.textContent = 'Settings save automatically (localStorage).';
-    panel.append(note);
-    this.root.append(panel);
+  _renderControls(body) {
+    const s = state.settings;
+    const kb = s.keybinds;
+    const K = (a) => `<kbd>${UI.humanKey(kb[a])}</kbd>`;
+
+    // ---- Reference: how to shoot / pass with the current bindings. ----
+    const ref = document.createElement('div');
+    ref.className = 'controls-ref';
+    ref.innerHTML = `
+      <h3>How to shoot</h3>
+      <ul>
+        <li>Power shot — hold ${K('shoot')} (longer hold = more power)</li>
+        <li>Finesse / curl — hold ${K('finesse')} + ${K('shoot')}</li>
+        <li>Trivela (outside boot) — hold ${K('trivela')} + ${K('shoot')}</li>
+        <li>Chip / lob the keeper — hold ${K('chip')} + ${K('shoot')}</li>
+        <li>Low driven — short tap of ${K('shoot')} near goal</li>
+        <li>Volley — press ${K('shoot')} while the ball is in the air</li>
+      </ul>
+      <h3>How to pass</h3>
+      <ul>
+        <li>Ground pass — hold ${K('pass')} (longer hold = more power)</li>
+        <li>Through ball — ${K('throughBall')}</li>
+        <li>Cross / lofted pass — ${K('cross')}</li>
+      </ul>
+      <h3>Movement &amp; more</h3>
+      <ul>
+        <li>Move — ${K('moveUp')} ${K('moveLeft')} ${K('moveDown')} ${K('moveRight')} (Arrow keys always work too)</li>
+        <li>Sprint — hold ${K('sprint')}</li>
+        <li>Switch player — ${K('switchPlayer')} · Tackle — ${K('tackle')} · Trigger run — ${K('triggerRun')}</li>
+      </ul>`;
+    body.append(ref);
+
+    // ---- Rebinding rows, grouped. ----
+    const groups = [
+      ['Movement', [
+        ['moveUp', 'Move up'], ['moveDown', 'Move down'], ['moveLeft', 'Move left'],
+        ['moveRight', 'Move right'], ['sprint', 'Sprint'],
+      ]],
+      ['Shooting', [
+        ['shoot', 'Shoot'], ['finesse', 'Finesse modifier'], ['trivela', 'Trivela modifier'], ['chip', 'Chip modifier'],
+      ]],
+      ['Passing', [
+        ['pass', 'Pass'], ['throughBall', 'Through ball'], ['cross', 'Cross / lofted'],
+      ]],
+      ['Other', [
+        ['switchPlayer', 'Switch player'], ['tackle', 'Tackle'], ['triggerRun', 'Trigger run'],
+      ]],
+    ];
+
+    const heading = document.createElement('h3');
+    heading.textContent = 'Change key bindings';
+    heading.className = 'rebind-title';
+    body.append(heading);
+
+    groups.forEach(([title, actions]) => {
+      const gh = document.createElement('div');
+      gh.className = 'rebind-group';
+      gh.textContent = title;
+      body.append(gh);
+      actions.forEach(([action, label]) => body.append(this._rebindRow(action, label)));
+    });
+
+    const reset = this._btn('Reset to defaults', 'reset');
+    reset.addEventListener('click', () => {
+      state.settings.keybinds = { ...DEFAULT_KEYBINDS };
+      this._persist();
+      body.innerHTML = '';
+      this._renderControls(body);
+    });
+    body.append(reset);
+  }
+
+  _rebindRow(action, label) {
+    const kb = state.settings.keybinds;
+    const row = document.createElement('div');
+    row.className = 'setting rebind';
+    row.innerHTML = `<span>${label}</span>`;
+    const btn = document.createElement('button');
+    btn.className = 'keycap';
+    btn.textContent = UI.humanKey(kb[action]);
+    btn.addEventListener('click', () => {
+      if (this._capturing) return;
+      this._capturing = true;
+      btn.classList.add('listening');
+      btn.textContent = 'Press a key…';
+      const onKey = (e) => {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        window.removeEventListener('keydown', onKey, true);
+        this._capturing = false;
+        btn.classList.remove('listening');
+        if (e.code !== 'Escape') { kb[action] = e.code; this._persist(); }
+        btn.textContent = UI.humanKey(kb[action]);
+      };
+      window.addEventListener('keydown', onKey, true);
+    });
+    row.append(btn);
+    return row;
+  }
+
+  // Human-readable label for a KeyboardEvent.code.
+  static humanKey(code) {
+    if (!code) return '—';
+    if (code.startsWith('Key')) return code.slice(3);
+    if (code.startsWith('Digit')) return code.slice(5);
+    if (code.startsWith('Numpad')) return 'Num ' + code.slice(6);
+    const map = {
+      Space: 'Space', ArrowUp: '↑', ArrowDown: '↓', ArrowLeft: '←', ArrowRight: '→',
+      ShiftLeft: 'L-Shift', ShiftRight: 'R-Shift', ControlLeft: 'L-Ctrl', ControlRight: 'R-Ctrl',
+      AltLeft: 'L-Alt', AltRight: 'R-Alt', Enter: 'Enter', Tab: 'Tab', Backquote: '`',
+      Minus: '-', Equal: '=', Comma: ',', Period: '.', Slash: '/', Semicolon: ';',
+      Quote: "'", BracketLeft: '[', BracketRight: ']', Backslash: '\\', CapsLock: 'Caps',
+    };
+    return map[code] || code;
   }
 
   _persist() { saveSettings(state.settings); }

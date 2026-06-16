@@ -89,7 +89,7 @@ h3 { margin: 0 0 8px; font-size: 16px; color: var(--muted); }
 .play-row { display: flex; justify-content: space-between; align-items: center; margin-top: 14px; }
 
 /* ---- Settings ---- */
-.panel.settings { width: 420px; }
+.panel.settings { width: 460px; }
 .setting { display: flex; align-items: center; gap: 12px; font-size: 14px; }
 .setting > span { flex: 1; }
 .setting select, .setting input[type=range] { flex: 1; }
@@ -98,6 +98,35 @@ h3 { margin: 0 0 8px; font-size: 16px; color: var(--muted); }
   border-radius: 6px; padding: 6px;
 }
 .setting b { width: 36px; text-align: right; color: var(--accent); }
+
+/* Settings tabs + scrollable body */
+.tabs { display: flex; gap: 8px; margin-bottom: 12px; }
+.btn.tab { flex: 1; padding: 9px 10px; font-size: 14px; }
+.btn.tab.active { border-color: var(--accent); background: rgba(0,224,255,0.14); color: var(--text); }
+.settings-body { display: flex; flex-direction: column; gap: 10px; max-height: 56vh; overflow: auto; padding-right: 4px; }
+
+/* Controls reference + rebinding */
+.controls-ref { background: rgba(0,0,0,0.22); border-radius: 10px; padding: 10px 14px; font-size: 13px; }
+.controls-ref h3 { margin: 8px 0 4px; color: var(--accent2); font-size: 13px; }
+.controls-ref h3:first-child { margin-top: 0; }
+.controls-ref ul { margin: 0; padding-left: 16px; line-height: 1.7; color: var(--muted); }
+.controls-ref li { color: var(--text); }
+kbd {
+  display: inline-block; min-width: 16px; text-align: center; padding: 1px 6px;
+  background: #0e1a28; border: 1px solid rgba(255,255,255,0.25); border-bottom-width: 2px;
+  border-radius: 5px; font: 600 12px/1.4 'Segoe UI', system-ui, sans-serif; color: var(--text);
+}
+.rebind-title { margin: 6px 0 0; }
+.rebind-group { color: var(--accent); font-size: 12px; font-weight: 700; margin-top: 8px; letter-spacing: 0.04em; }
+.setting.rebind { justify-content: space-between; }
+.keycap {
+  min-width: 92px; padding: 7px 10px; border-radius: 8px; cursor: pointer;
+  background: #0e1a28; color: var(--text); border: 1px solid rgba(255,255,255,0.22);
+  border-bottom-width: 3px; font: 600 13px 'Segoe UI', system-ui, sans-serif;
+}
+.keycap:hover { border-color: var(--accent); }
+.keycap.listening { border-color: var(--accent2); color: var(--accent2); }
+.btn.reset { margin-top: 12px; font-size: 13px; }
 
 .flash {
   margin-top: 10px; text-align: center; color: #ffd54a; font-size: 14px;

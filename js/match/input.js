@@ -1,7 +1,12 @@
 // input.js — keyboard (and basic gamepad) state with edge detection.
 // The match layer interprets these against game context (attack vs defend).
+// Key bindings are user-configurable (Settings → Controls); arrow keys always
+// work for movement as a fixed secondary mapping.
+import { DEFAULT_KEYBINDS } from '../core/gameState.js';
+
 export class Input {
-  constructor() {
+  constructor(keybinds) {
+    this.kb = keybinds || { ...DEFAULT_KEYBINDS };
     this.down = new Set();
     this.pressed = new Set();   // edge: became down this frame
     this.released = new Set();  // edge: became up this frame
@@ -20,11 +25,10 @@ export class Input {
   }
 
   _isGameKey(code) {
-    return [
-      'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space',
-      'KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyJ', 'KeyK', 'KeyL', 'KeyE', 'KeyQ',
-      'ShiftLeft', 'ShiftRight', 'KeyC', 'KeyV', 'KeyB',
-    ].includes(code);
+    // Built from the current bindings plus the fixed arrow keys. Rebuilt each
+    // call so runtime rebinds take effect immediately.
+    if (code.startsWith('Arrow')) return true;
+    return Object.values(this.kb).includes(code);
   }
 
   beginFrame(dt) {
@@ -46,13 +50,17 @@ export class Input {
   justReleased(c) { return this.released.has(c); }
   held(c) { return this.holdTime[c] || 0; }
 
-  // Movement vector from WASD/Arrows, plus gamepad left stick if present.
+  // Movement vector in screen/camera space: x = right, z = forward (toward the
+  // far side of the pitch). The match converts this to world space using the
+  // current camera orientation so controls feel correct from any camera angle.
+  // Reads the bound movement keys plus arrows and the gamepad left stick.
   moveAxis() {
+    const kb = this.kb;
     let x = 0, z = 0;
-    if (this.isDown('KeyA') || this.isDown('ArrowLeft')) x -= 1;
-    if (this.isDown('KeyD') || this.isDown('ArrowRight')) x += 1;
-    if (this.isDown('KeyW') || this.isDown('ArrowUp')) z += 1;
-    if (this.isDown('KeyS') || this.isDown('ArrowDown')) z -= 1;
+    if (this.isDown(kb.moveLeft) || this.isDown('ArrowLeft')) x -= 1;
+    if (this.isDown(kb.moveRight) || this.isDown('ArrowRight')) x += 1;
+    if (this.isDown(kb.moveUp) || this.isDown('ArrowUp')) z += 1;
+    if (this.isDown(kb.moveDown) || this.isDown('ArrowDown')) z -= 1;
     const pads = navigator.getGamepads ? navigator.getGamepads() : [];
     const gp = pads && pads[0];
     if (gp) {
@@ -63,5 +71,11 @@ export class Input {
     return { x, z };
   }
 
-  sprint() { return this.isDown('ShiftLeft') || this.isDown('ShiftRight'); }
+  sprint() {
+    const c = this.kb.sprint;
+    if (this.isDown(c)) return true;
+    // If bound to a Shift key, accept either physical Shift for convenience.
+    if (c === 'ShiftLeft' || c === 'ShiftRight') return this.isDown('ShiftLeft') || this.isDown('ShiftRight');
+    return false;
+  }
 }

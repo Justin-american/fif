@@ -6,8 +6,6 @@ let ctx = null;
 let masterGain = null;
 let sfxGain = null;
 let musicGain = null;
-let crowdNode = null;
-let crowdGain = null;
 let settingsRef = null;
 
 function ensureCtx() {
@@ -97,38 +95,5 @@ export const sfx = {
   goalHorn() {
     blip(330, 0.6, 'sawtooth', 0.3);
     setTimeout(() => blip(440, 0.7, 'sawtooth', 0.3), 120);
-    this.crowdSwell();
-  },
-  crowdSwell() {
-    if (!ensureCtx()) return;
-    const t = ctx.currentTime;
-    const src = ctx.createBufferSource();
-    src.buffer = noiseBuffer(1.4);
-    const bp = ctx.createBiquadFilter();
-    bp.type = 'bandpass'; bp.frequency.value = 700; bp.Q.value = 0.6;
-    const g = ctx.createGain();
-    g.gain.setValueAtTime(0.0001, t);
-    g.gain.exponentialRampToValueAtTime(0.5, t + 0.25);
-    g.gain.exponentialRampToValueAtTime(0.0001, t + 1.3);
-    src.connect(bp); bp.connect(g); g.connect(sfxGain);
-    src.start(t); src.stop(t + 1.4);
   },
 };
-
-// Ambient crowd bed (counts as "music" channel for volume purposes).
-export function startCrowd() {
-  if (!ensureCtx() || crowdNode) return;
-  crowdNode = ctx.createBufferSource();
-  crowdNode.buffer = noiseBuffer(2.0);
-  crowdNode.loop = true;
-  const bp = ctx.createBiquadFilter();
-  bp.type = 'bandpass'; bp.frequency.value = 500; bp.Q.value = 0.4;
-  crowdGain = ctx.createGain();
-  crowdGain.gain.value = 0.06;
-  crowdNode.connect(bp); bp.connect(crowdGain); crowdGain.connect(musicGain);
-  crowdNode.start();
-}
-
-export function stopCrowd() {
-  if (crowdNode) { try { crowdNode.stop(); } catch (e) {} crowdNode = null; }
-}

@@ -76,12 +76,20 @@ export class Ball {
       }
     }
 
-    // --- Rolling friction when on the ground. ---
+    // --- Rolling friction when on the ground (frame-rate independent). ---
+    // A gentle exponential velocity retention plus a small constant deceleration
+    // so the ball rolls a realistic distance and still settles to a stop.
     if (p.y <= BALL_R + 1e-3 && v.y === 0) {
-      const roll = 0.86; // per-second retention
-      const f = Math.pow(roll, dt * 60);
-      v.x *= f; v.z *= f;
-      if (Math.hypot(v.x, v.z) < 0.05) { v.x = 0; v.z = 0; }
+      const sp = Math.hypot(v.x, v.z);
+      if (sp > 0) {
+        const ROLL_RETAIN = 0.75;            // velocity retained per second
+        const DECEL = 2.0;                   // constant decel (m/s^2)
+        let next = sp * Math.pow(ROLL_RETAIN, dt) - DECEL * dt;
+        if (next < 0) next = 0;
+        const scale = next / sp;
+        v.x *= scale; v.z *= scale;
+        if (Math.hypot(v.x, v.z) < 0.05) { v.x = 0; v.z = 0; }
+      }
     }
 
     // Spin decays over time.
