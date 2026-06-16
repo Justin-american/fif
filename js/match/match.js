@@ -50,6 +50,11 @@ export class Match {
     this.running = true;
     this._acc = 0;
 
+    // Rolling snapshot buffer used to play an instant replay after a goal.
+    this._history = [];
+    this._historyMax = 210;   // ~3.5s at 60 Hz
+    this._replay = null;
+
     this.referee = new Referee(Math.max(1, this.settings.matchLengthMinutes) * 60);
 
     this._initThree();
@@ -105,7 +110,9 @@ export class Match {
     this.scene.add(sun);
     this.scene.add(new THREE.HemisphereLight(0xbfe3ff, 0x3a6b2e, 0.7));
 
-    this.scene.add(buildPitchMesh());
+    const pitch = buildPitchMesh();
+    this.scene.add(pitch);
+    this.nets = (pitch.userData && pitch.userData.nets) || [];
 
     // Ball mesh.
     const bm = new THREE.Mesh(
@@ -356,6 +363,15 @@ export class Match {
     let frame = (now - this._lastT) / 1000;
     this._lastT = now;
     if (frame > 0.1) frame = 0.1; // clamp big stalls
+
+    // Instant replay takes over the render loop: drive meshes from recorded
+    // snapshots instead of simulating.
+    if (this._replay) {
+      this._runReplay(frame);
+      requestAnimationFrame(this._tick);
+      return;
+    }
+
     this._acc += frame;
     this.input.beginFrame(frame);
     if (!this.paused) {
@@ -396,6 +412,7 @@ export class Match {
 
     // Ball physics + possession.
     this.ball.step(dt);
+    this._containBallInNet();
     this._resolvePossession(dt);
     this._checkBallOutAndGoals(dt);
 
@@ -404,6 +421,62 @@ export class Match {
 
     // Run trigger decays.
     if (this.triggeredRunner) { this.triggeredRunner.runTimer = (this.triggeredRunner.runTimer || 0); }
+
+    // Record a snapshot for instant replay (skip during the goal celebration so
+    // the buffer ends at the moment of the goal).
+    if (this.restart.type !== RestartType.GoalCelebration) this._recordHistory();
+  }
+
+  // Capture the current ball + player state into the rolling replay buffer.
+  _recordHistory() {
+    const b = this.ball;
+    const ps = new Array(this.players.length);
+    for (let i = 0; i < this.players.length; i++) {
+      const p = this.players[i];
+      ps[i] = {
+        x: p.pos.x, z: p.pos.z,
+        hx: p.heading.x, hz: p.heading.z,
+        vx: p.vel.x, vz: p.vel.z,
+        off: p.sentOff,
+      };
+    }
+    this._history.push({ bx: b.pos.x, by: b.pos.y, bz: b.pos.z, ps });
+    if (this._history.length > this._historyMax) this._history.shift();
+  }
+
+  // Begin an instant replay of the passage of play leading up to a goal.
+  _startReplay(onDone) {
+    if (!this._history.length) { onDone(); return; }
+    // Replay roughly the last 3 seconds (or whatever we have).
+    const want = Math.min(this._history.length, 180);
+    const frames = this._history.slice(this._history.length - want);
+    this._replay = { frames, t: 0, speed: 0.85, onDone };
+    this.hud.toast('REPLAY', 1600);
+  }
+
+  _runReplay(frame) {
+    const R = this._replay;
+    R.t += frame * R.speed;
+    const idx = Math.floor(R.t / DT);
+    if (idx >= R.frames.length) {
+      this._replay = null;
+      const done = R.onDone;
+      if (done) done();
+      return;
+    }
+    const f = R.frames[idx];
+    this.ball.pos.x = f.bx; this.ball.pos.y = f.by; this.ball.pos.z = f.bz;
+    this.ball.vel.x = this.ball.vel.z = 0;
+    for (let i = 0; i < this.players.length; i++) {
+      const p = this.players[i], s = f.ps[i];
+      if (!s) continue;
+      p.pos.x = s.x; p.pos.z = s.z;
+      p.heading.x = s.hx; p.heading.z = s.hz;
+      p.vel.x = s.vx; p.vel.z = s.vz;
+    }
+    this._updateCamera(frame);
+    this._syncMeshes(frame);
+    this.renderer.render(this.scene, this.camera);
   }
 
   // Respawn a practice drill a moment after the keeper/opponent gathers the ball
@@ -681,12 +754,24 @@ export class Match {
     this.hud.toast('GOAL!');
     this._pendingShot = null;
     this.restart = { type: RestartType.GoalCelebration };
-    // Brief celebration then restart.
-    setTimeout(() => {
-      if (!this.running) return;
-      if (this.mode === GameMode.FullMatch) this._kickoff(scoringSide === 'home' ? 'away' : 'home');
-      else this._resetDrill();
-    }, 1400);
+    // Brief celebration (ball billows the net), then an instant replay, then the
+    // restart. Drills just respawn the ball without a replay.
+    if (this.mode === GameMode.FullMatch) {
+      const frames = this._history.slice();
+      setTimeout(() => {
+        if (!this.running) return;
+        this._history = frames; // replay the build-up captured up to the goal
+        this._startReplay(() => {
+          if (!this.running) return;
+          this._kickoff(scoringSide === 'home' ? 'away' : 'home');
+        });
+      }, 1100);
+    } else {
+      setTimeout(() => {
+        if (!this.running) return;
+        this._resetDrill();
+      }, 1400);
+    }
   }
 
   _resetDrill() {
@@ -747,6 +832,64 @@ export class Match {
     bm.position.set(b.pos.x, b.pos.y, b.pos.z);
     bm.rotation.x += (b.vel.z) * frame * 2;
     bm.rotation.z -= (b.vel.x) * frame * 2;
+    this._updateNets(frame);
+  }
+
+  // Keep the ball inside the goal netting: once it's in the goal mouth and past
+  // the back of the net, clamp it and let the net soak up the pace (so a shot
+  // nestles in the net instead of flying straight through it).
+  _containBallInNet() {
+    if (!this.nets || !this.nets.length) return;
+    const b = this.ball;
+    const gw = PITCH.goalWidth, gh = PITCH.goalHeight, hl = PITCH.halfLength;
+    if (Math.abs(b.pos.x) > gw / 2 + 0.2) return;
+    for (const zSign of [1, -1]) {
+      const line = zSign * hl;
+      const into = (b.pos.z - line) * zSign;           // how far past the line
+      if (into <= 0) continue;
+      if (b.pos.y > gh + 0.2) continue;
+      const backPlane = (this.nets.find((n) => n.zSign === zSign) || {}).depth || 2.0;
+      if (into > backPlane - 0.08) {
+        // Hit the back of the net: stop there and absorb most of the energy.
+        b.pos.z = line + zSign * (backPlane - 0.08);
+        if (b.vel.z * zSign > 0) b.vel.z *= -0.18;
+        b.vel.x *= 0.4; b.vel.y *= 0.4; b.spin = 0;
+      }
+    }
+  }
+
+  // Ease each net's back panel toward the ball (bulge on impact) and spring it
+  // back to rest otherwise.
+  _updateNets(frame) {
+    if (!this.nets || !this.nets.length) return;
+    const b = this.ball;
+    const gw = PITCH.goalWidth, gh = PITCH.goalHeight;
+    const k = 1 - Math.pow(0.0008, Math.max(1e-3, frame)); // springy easing
+    const sigma = 1.0, sig2 = 2 * sigma * sigma;
+    for (const net of this.nets) {
+      const zSign = net.zSign;
+      const into = (b.pos.z - net.line) * zSign;
+      const inGoal = Math.abs(b.pos.x) < gw / 2 + 0.3 && b.pos.y < gh + 0.4 &&
+        into > -0.2 && into < net.depth + 0.6;
+      const speed = Math.hypot(b.vel.x, b.vel.y, b.vel.z);
+      const strength = inGoal ? clamp(speed / 26 + 0.35, 0.3, 1.2) : 0;
+      const pos = net.geom.attributes.position;
+      let changed = false;
+      for (let i = 0; i < pos.count; i++) {
+        const lx = net.rest[i * 3];
+        const ly = net.rest[i * 3 + 1];
+        const wy = net.yOffset + ly;
+        let target = 0;
+        if (strength > 0) {
+          const d2 = (b.pos.x - lx) * (b.pos.x - lx) + (b.pos.y - wy) * (b.pos.y - wy);
+          target = zSign * strength * Math.exp(-d2 / sig2);
+        }
+        const cz = pos.getZ(i);
+        const nz = cz + (target - cz) * k;
+        if (Math.abs(nz - cz) > 1e-4) { pos.setZ(i, nz); changed = true; }
+      }
+      if (changed) pos.needsUpdate = true;
+    }
   }
 
   _updateHud() {

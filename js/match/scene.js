@@ -27,7 +27,7 @@ function paintCircle(group, cx, cz, r, segments = 48, w = 0.18, y = 0.02) {
   }
 }
 
-function buildGoal(group, zSign) {
+function buildGoal(group, zSign, nets) {
   const postMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.4 });
   const gw = PITCH.goalWidth, gh = PITCH.goalHeight, hl = PITCH.halfLength;
   const z = zSign * hl;
@@ -44,12 +44,44 @@ function buildGoal(group, zSign) {
   bar.position.set(0, gh, z);
   bar.castShadow = true;
   group.add(bar);
-  // Net (translucent box behind the line).
+
+  // ---- Net ----
+  // A subdivided plane forms the back of the net; it deforms (bulges) when the
+  // ball hits it so a powerful shot visibly pushes the netting back, then it
+  // springs home. Side and roof panels close the goal in so the ball can't pass
+  // straight through.
   const netDepth = 2.0;
-  const netMat = new THREE.MeshBasicMaterial({ color: 0xffffff, wireframe: true, transparent: true, opacity: 0.25 });
-  const net = new THREE.Mesh(new THREE.BoxGeometry(gw, gh, netDepth), netMat);
-  net.position.set(0, gh / 2, z + zSign * netDepth / 2);
-  group.add(net);
+  const netMat = new THREE.MeshBasicMaterial({
+    color: 0xf2f6ff, wireframe: true, transparent: true, opacity: 0.4, side: THREE.DoubleSide,
+  });
+
+  // Back panel (deformable). PlaneGeometry lies in XY with +z normal; place it
+  // upright at the back of the goal facing the pitch.
+  const segX = 14, segY = 8;
+  const backGeo = new THREE.PlaneGeometry(gw, gh, segX, segY);
+  const back = new THREE.Mesh(backGeo, netMat);
+  const backZ = z + zSign * netDepth;
+  back.position.set(0, gh / 2, backZ);
+  group.add(back);
+  // Record rest positions so we can ease the bulge back home.
+  const rest = backGeo.attributes.position.array.slice();
+  nets.push({ mesh: back, geom: backGeo, rest, zSign, depth: netDepth, line: z, yOffset: gh / 2 });
+
+  // Roof panel.
+  const roofGeo = new THREE.PlaneGeometry(gw, netDepth);
+  const roof = new THREE.Mesh(roofGeo, netMat);
+  roof.rotation.x = -Math.PI / 2;
+  roof.position.set(0, gh, z + zSign * netDepth / 2);
+  group.add(roof);
+
+  // Side panels.
+  for (const sx of [-1, 1]) {
+    const sideGeo = new THREE.PlaneGeometry(netDepth, gh);
+    const side = new THREE.Mesh(sideGeo, netMat);
+    side.rotation.y = Math.PI / 2;
+    side.position.set(sx * gw / 2, gh / 2, z + zSign * netDepth / 2);
+    group.add(side);
+  }
 }
 
 function buildStands(group) {
@@ -129,8 +161,10 @@ export function buildPitchMesh() {
   }
   group.add(lines);
 
-  buildGoal(group, 1);
-  buildGoal(group, -1);
+  const nets = [];
+  buildGoal(group, 1, nets);
+  buildGoal(group, -1, nets);
   buildStands(group);
+  group.userData.nets = nets;
   return group;
 }
