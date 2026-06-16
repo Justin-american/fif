@@ -70,7 +70,7 @@ namespace FIF.Core
             p.preferredFoot = foot;
             p.isCaptain = captain;
             p.pace = pace;
-            p.acceleration = Mathf.Clamp(pace + Random2(name, -3, 3), 0, 100);
+            p.acceleration = Mathf.Clamp(pace + NameBasedOffset(name, -3, 3), 0, 100);
             p.shooting = shooting;
             p.passing = passing;
             p.dribbling = dribbling;
@@ -87,8 +87,8 @@ namespace FIF.Core
             return p;
         }
 
-        // Tiny deterministic jitter so derived stats are not all identical.
-        private static int Random2(string seed, int min, int max)
+        // Tiny deterministic, name-seeded offset so derived stats are not all identical.
+        private static int NameBasedOffset(string seed, int min, int max)
         {
             int h = Mathf.Abs(seed.GetHashCode());
             return min + (h % (max - min + 1));

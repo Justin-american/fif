@@ -41,6 +41,7 @@ namespace FIF.Data
         [Range(0, 100)] public int aggression = 55;
 
         [Header("Misc")]
+        [Tooltip("Weak-foot ability in stars: 1 = very poor, 5 = excellent (FIFA-style).")]
         [Range(1, 5)] public int weakFoot = 3;
 
         /// <summary>
