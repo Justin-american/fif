@@ -22,7 +22,11 @@ export function updateGK(gk, world, dt) {
   // Advance to narrow the angle when the ball is close and central.
   const distBall = V2.dist(gk.pos, b2d);
   const ballInBox = inPenaltyArea(b2d, goalZ);
-  if (ballInBox && (!world.ballCarrier || world.ballCarrier.side !== gk.side)) {
+  // Don't chase a ball the keeper has only just released (a distribution): without
+  // this guard he re-collects his own kick on the very next tick and the ball can
+  // never leave the box (goal kicks / clearances appeared to "reset" forever).
+  const justKicked = gk.kickCooldown > 0 && ball.lastTouch === gk;
+  if (ballInBox && !justKicked && (!world.ballCarrier || world.ballCarrier.side !== gk.side)) {
     targetZ = goalZ + dir * clamp(4 + (PITCH.penaltyAreaDepth - Math.abs(b2d.z - goalZ)) * 0.2, 1, 7);
     // Rush a loose ball in the box.
     if (world.ballLoose && distBall < 6) {
